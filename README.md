@@ -1,8 +1,8 @@
 # Monkey Box Gambling Experiment
-A behavioral neuroscience research project designed to study decision-making and gambling behavior in freely moving non-human primates.
+A behavioral neuroscience research project designed to study decision-making under uncertainty and gambling behavior in freely moving non-human primates.
 
 ## Project Overview
-This is a computerized behavioral experiment that presents gambling choices to test subjects, measuring their decision-making patterns, risk preferences, and learning behaviors.
+This is a computerized behavioral experiment that presents gambling choices to test subjects, measuring their decision-making patterns and risk attitude.
 
 ### Experimental Design
 #### Trial Types:
@@ -30,9 +30,9 @@ This is a computerized behavioral experiment that presents gambling choices to t
 - Comprehensive timestamp recording (motion detection, face detection, stimulus onset, response, outcome, reward delivery)
 - Spatial configuration tracking (left/right positioning)
 - Choice accuracy and response time measurements
-- Experimental Parameters:
 
-##### Paradigm Features
+
+##### Paradigm Parameters
 - Multiple reward magnitudes (1-7 pellets/units)
 - Variable probability conditions (0.1, 0.5, 1.0)
 - Configurable win/lose amounts for each option
@@ -45,7 +45,7 @@ This type of experiment is typically used to study:
 - Reward valuation and magnitude sensitivity
 - Comparative cognition across species
 
-###### Data Output
+##### Data Output
 The system generates detailed behavioral datasets including:
 
 - Choice preferences and patterns
@@ -53,3 +53,15 @@ The system generates detailed behavioral datasets including:
 - Choice curves
 - Risk attitude measures
 - Session-by-session performance tracking
+
+
+## CHANGES
+### 2025/09/25
+- Initial upload. fully functional task using keyboard as user input. 
+- Button input (arduino) or keyboard can now be used as user input.
+
+## TODO
+- Motion detection
+- face detection
+- still photos acquired in the interval starting at face_detection and ending at max_response_time or reward delivery
+- reward system

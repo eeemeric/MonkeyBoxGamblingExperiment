@@ -9,19 +9,19 @@ import pygame
 import random
 import time
 import sys
-# import serial
-# import threading
+import serial
+import threading
 import sqlite3
 import os
 from datetime import datetime
 # import cv2
-# import numpy as np
-# import math
+import numpy as np
+import math
 import traceback
 
 class experiment():
     def __init__(self):
-        self.DEBUG = True # DO NOT DISPLAY TEXT FOR SUBJECTS
+        self.DEBUG = True # Use buttons instead of keyboard and fullscreen display
         self.SIMULATE = False
         
         self.max_RT = 5000
@@ -199,8 +199,13 @@ class experiment():
             # Now, set the display mode
             self.screen = pygame.display.set_mode((self.window_width, self.window_height))
         else:
-            # Create a full-screen surface at your monitor's current resolution
-            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            # Set the SDL environment variable before setting the display mode
+            os.environ['SDL_VIDEO_WINDOW_POS'] = f'{x_pos},{y_pos}'
+            # Now, set the display mode
+            self.screen = pygame.display.set_mode((self.window_width, self.window_height))
+            
+            # # Create a full-screen surface at your monitor's current resolution
+            # self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 
         pygame.display.set_caption("Experiment")
 
@@ -212,7 +217,112 @@ class experiment():
         self.opt_sp_config = random.choice(['left', 'right'])
         
         # SETUP sqlite_db
+        self.db_connection = None
         self.setup_database()
+        
+        # Arduino setup
+        self.arduino_buttons = None
+        self.arduino_buttons_connected = False
+        self.arduino_buttons_button_pressed = None
+        self.setup_arduino_buttons()
+        self.arduino_reward = None
+        self.arduino_reward_connected = False
+        self.reward_max_position = 10
+        self.reward_current_position = 0
+        self.setup_arduino_reward()
+
+    def setup_arduino_buttons(self):
+        """Setup Arduino buttons serial connection"""
+        try:
+            self.arduino_buttons = serial.Serial('COM14', 115200, timeout=1)
+            print("Attempting to connect to Arduino on COM14...")
+            
+            # Wait for Arduino to initialize and send "buttons"
+            start_time = time.time()
+            while time.time() - start_time < 5:  # Wait up to 5 seconds
+                if self.arduino_buttons.in_waiting > 0:
+                    data = self.arduino_buttons.readline().decode('utf-8').strip()
+                    print(f"Received from Arduino: {data}")
+                    if data == "buttons":
+                        self.arduino_buttons_connected = True
+                        print("Arduino connected and ready!")
+                        # Start Arduino reading thread
+                        self.arduino_buttons_thread = threading.Thread(target=self.read_arduino_buttons, daemon=True)
+                        self.arduino_buttons_thread.start()
+                        return
+                time.sleep(0.1)
+            
+            print("Arduino did not send 'buttons' confirmation. Using keyboard input.")
+            self.arduino_buttons.close()
+            self.arduino_buttons = None
+        except Exception as e:
+            print(f"Failed to connect to Arduino: {e}")
+            print("Using keyboard input instead.")
+            self.arduino_buttons = None
+
+    def setup_arduino_reward(self):
+        """Setup Arduino reward serial connection"""
+        try:
+            self.reward_current_position = 0
+            self.reward_current_direction = 1 # 1 = forward, 0 = backward
+
+            self.arduino_reward = serial.Serial('COM4', 115200, timeout=1)
+            print("Attempting to connect to Arduino on COM4...")
+            # Wait for Arduino to initialize and send "reward"
+            start_time = time.time()
+            while time.time() - start_time < 5:  # Wait up to 5 seconds
+                if self.arduino_reward.in_waiting > 0:
+                    data = self.arduino_reward.readline().decode().strip()
+                    print(f"Received from Arduino: {data}")
+                    while data != "Grbl 1.1h ['$' for help]" and time.time() - start_time < 5:
+                        data = self.arduino_reward.readline().decode().strip()
+                        if data == "Grbl 1.1h ['$' for help]":
+                            self.arduino_reward_connected = True
+                            print("Arduino_reward connected and ready!")
+                            # set starting position
+                            command = "G92 X0 Y0 Z0\n"
+                            self.arduino_reward.write(command.encode()) # Encode the string to bytes before sending
+                            send_time = time.time()
+                            while time.time() - send_time < 5:  # Wait up to 5 seconds
+                                if self.arduino_reward.in_waiting > 0:
+                                    response = self.arduino_reward.readline().decode().strip()
+                                    print(response)
+                                    if response == "ok":
+                                        print("Homing command acknowledged by Arduino.")
+                                        break
+                            command = "G0 X5\n"
+                        self.arduino_reward.write(command.encode()) # Encode the string to bytes before sending
+                        time.sleep(2)
+                        command = "G0 X0\n"
+                        self.arduino_reward.write(command.encode()) # Encode the string to bytes before sending
+                    if self.arduino_reward_connected:
+                            return
+                    time.sleep(0.1)
+
+            if not self.arduino_reward_connected:
+                print("Arduino did not send 'Grbl 1.1h ['$' for help]' confirmation. Using sound output.")
+                self.arduino_reward.close()
+        except Exception as e:
+            print(f"Failed to connect to Arduino_reward: {e}")  
+            print("Using sound output instead.")
+            self.arduino_reward.close()
+            self.arduino_buttons = None
+
+    def read_arduino_buttons(self):
+        """Continuously read from Arduino in separate thread"""
+        while self.arduino_buttons and self.arduino_buttons_connected:
+            try:
+                if self.arduino_buttons.in_waiting > 0:
+                    data = self.arduino_buttons.readline().decode('utf-8').strip()
+                    if data == "20":
+                        self.arduino_buttons_button_pressed = "left"
+                    elif data == "21":
+                        self.arduino_buttons_button_pressed = "right"
+                time.sleep(0.01)  # Small delay to prevent excessive CPU usage
+            except Exception as e:
+                print(f"Arduino read error: {e}")
+                self.arduino_buttons_connected = False
+                break
 
     def setup_database(self):
         """Setup SQLite database with trial data"""
@@ -270,7 +380,7 @@ class experiment():
         self.ts_outcome_reveal = None
         self.ts_reward_delivered = None
         self.ts_end_of_trial = None
-
+        
         # correct trial flag
         self.success = False
         
@@ -367,7 +477,11 @@ class experiment():
         
     def wait_for_response(self):
         # remove events from the event queue
+        
         pygame.event.clear()
+        if self.arduino_buttons_connected:
+            self.arduino_buttons.flushInput()
+        
         print("Waiting for response")
         # get time 
         # wait till max response time
@@ -377,9 +491,17 @@ class experiment():
         if self.SIMULATE:
             print("Simulated Choice")
             self.choice = 'left'
-        else:
+        elif self.DEBUG:
             running = True
             while running:
+                if self.arduino_buttons_connected and self.arduino_buttons_button_pressed:
+                    print(f"{self.arduino_buttons_button_pressed} button pressed" )
+                    self.choice = self.arduino_buttons_button_pressed
+                    self.ts_button_press = pygame.time.get_ticks()
+                    self.arduino_buttons_button_pressed = None
+                    running = False
+                    break
+                    
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
@@ -414,7 +536,21 @@ class experiment():
                     print("No Response")
                     
                 pygame.time.delay(10)
-                  
+        else:
+            # use arduino buttons
+            running = True
+            while running:
+                if self.arduino_buttons_connected and self.arduino_buttons_button_pressed:
+                    self.choice = self.arduino_buttons_button_pressed
+                    self.ts_button_press = pygame.time.get_ticks()
+                    running = False
+                if pygame.time.get_ticks() > self.max_RT + self.ts_stimuli_on:
+                    running = False
+                    self.choice = 'no response'
+                    print("No Response")
+                    
+                pygame.time.delay(4)
+            
     def handle_choice(self):
         # parse trial type
         if self.choice == 'no response':
@@ -655,12 +791,27 @@ class experiment():
     
     def run_trial(self):
         print(f"Running Trial {self.total_trial_counter + 1}")
+        
+        # Arduino LED control: ON
+        if self.arduino_buttons_connected:
+            try:
+                self.arduino_buttons.write("3\n".encode('utf-8'))
+            except Exception as e:
+                print(f"Arduino write error: {e}")
+                
         self.setup_new_trial()
         self.draw_stimuli()
         pygame.display.flip()
         self.ts_stimuli_on = pygame.time.get_ticks()
         
         self.wait_for_response()
+        
+        # Arduino LED control: OFF
+        if self.arduino_buttons_connected:
+            try:
+                self.arduino_buttons.write("4\n".encode('utf-8'))
+            except Exception as e:
+                print(f"Arduino write error: {e}")
         self.handle_choice()
         self.reveal_outcome()
         pygame.time.delay(250)
@@ -722,6 +873,18 @@ class experiment():
                 pygame.quit()
                 print("Pygame quit successfully")
             
+            if self.arduino_buttons_connected and self.arduino_buttons:
+                # Arduino LED control: OFF
+                self.arduino_buttons.write("4\n".encode('utf-8'))
+                self.arduino_buttons.close()
+                print("Arduino buttons connection closed")
+            if self.arduino_reward_connected and self.arduino_reward:
+                # command = "G0 X0\n"
+                # self.arduino_reward.write(command.encode()) # Encode the string to bytes before
+                # time.sleep(10)
+                self.arduino_reward.close()
+                print("Arduino Reward connection closed")
+                
             # Force garbage collection
             import gc
             gc.collect()
