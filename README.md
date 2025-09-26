@@ -61,7 +61,8 @@ The system generates detailed behavioral datasets including:
 - Button input (arduino) or keyboard can now be used as user input.
 
 ### 2025/09/26
-- Added Motion detection, face detection, and still photo capture. The system will continuously cycle through motion detection → face detection → trial execution → repeat, capturing pictures during each trial at 5 frames per second. Still photos are saved to the same database as the trial_data in table "trial_pictures".  Trials are only initiated after the installed camera detects motion.  
+- Added Motion detection, face detection, and still photo capture. The system will continuously cycle through motion detection → face detection → trial execution → repeat, capturing pictures during each trial at 5 frames per second. Still photos are saved to the same database as the trial_data in table "trial_pictures".  Trials are only initiated after the installed camera detects motion. 
+- Added GamblingExperimentAnalyzer.py. The program will import and analyze the SQLite database from the gambling experiment. The program automatically opens a file selection dialog when run without arguments. 
 
 ## TODO
 - face detection

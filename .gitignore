@@ -1,1 +1,4 @@
 *.db
+/extracted_pictures
+/exported_data
+/plots
