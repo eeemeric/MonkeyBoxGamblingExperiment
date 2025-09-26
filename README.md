@@ -60,8 +60,10 @@ The system generates detailed behavioral datasets including:
 - Initial upload. fully functional task using keyboard as user input. 
 - Button input (arduino) or keyboard can now be used as user input.
 
+### 2025/09/25
+- Added Motion detection. Trials are only initiated after the installed camera detects motion. 
+
 ## TODO
-- Motion detection
 - face detection
 - still photos acquired in the interval starting at face_detection and ending at max_response_time or reward delivery
 - reward system

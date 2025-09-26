@@ -14,10 +14,78 @@ import threading
 import sqlite3
 import os
 from datetime import datetime
-# import cv2
+import cv2
 import numpy as np
 import math
 import traceback
+
+class MotionDetector:
+    """Motion detection class that returns immediately on first movement"""
+    def __init__(self):
+        self.cap = cv2.VideoCapture(0)
+        self.background = None
+        self.motion_threshold = 5000
+        self.frames_to_stabilize = 30
+        
+    def detect_first_movement(self):
+        """
+        Detect first movement and return immediately.
+        Returns True if movement detected, False if detection fails.
+        """
+        print("Starting motion detection - waiting for first movement...")
+        self.ts_motion_detect = None
+
+        # Reset background
+        self.background = None
+        frame_count = 0
+        
+        try:
+            while True:
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("Failed to read from camera")
+                    return False
+                    
+                # Convert to grayscale
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.GaussianBlur(gray, (21, 21), 0)
+                
+                # Initialize/update background
+                if self.background is None:
+                    self.background = gray
+                    frame_count = 0
+                    continue
+                    
+                # Allow background to stabilize
+                if frame_count < self.frames_to_stabilize:
+                    self.background = cv2.addWeighted(self.background, 0.9, gray, 0.1, 0)
+                    frame_count += 1
+                    continue
+                    
+                # Calculate difference from stable background
+                frame_delta = cv2.absdiff(self.background, gray)
+                thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
+                thresh = cv2.dilate(thresh, None, iterations=2)
+                
+                # Find contours
+                contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Check for significant motion
+                motion_area = sum(cv2.contourArea(c) for c in contours)
+                
+                if motion_area > self.motion_threshold:
+                    self.ts_motion_detect = pygame.time.get_ticks()
+                    print(f"First movement detected! Area: {motion_area}")
+                    return True  # RETURN IMMEDIATELY on first detection
+                    
+        except Exception as e:
+            print(f"Motion detection error: {e}")
+            return False
+    
+    def cleanup(self):
+        """Clean up camera resources"""
+        if self.cap:
+            self.cap.release()
 
 class experiment():
     def __init__(self):
@@ -220,6 +288,9 @@ class experiment():
         self.db_connection = None
         self.setup_database()
         
+        # Motion detection
+        self.motion_detector = MotionDetector()
+
         # Arduino setup
         self.arduino_buttons = None
         self.arduino_buttons_connected = False
@@ -230,6 +301,47 @@ class experiment():
         self.reward_max_position = 10
         self.reward_current_position = 0
         self.setup_arduino_reward()
+
+    def wait_for_motion_with_display(self):
+        """
+        Wait for motion while updating the display.
+        This function blocks until motion is detected or user quits.
+        """
+        print("Waiting for first movement...")
+        
+        # Start motion detection in a separate thread
+        motion_thread = threading.Thread(target=self._motion_detection_thread)
+        motion_thread.daemon = True
+        self.motion_detection_active = True
+        self.motion_detected_flag = False
+        motion_thread.start()
+        
+        # Keep updating display while waiting for motion
+        while self.motion_detection_active and not self.motion_detected_flag:
+            # Handle pygame events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.motion_detection_active = False
+                    return False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_q:
+                        self.motion_detection_active = False
+                        return False
+            self.clock.tick(60)
+        
+        # Motion was detected
+        if self.motion_detected_flag:
+            self.motion_detected_timestamp = pygame.time.get_ticks()
+            print(f"Motion detected at {self.motion_detected_timestamp}ms")
+            return True
+        
+        return False
+
+    def _motion_detection_thread(self):
+        """Motion detection thread that sets a flag when motion is detected"""
+        if self.motion_detector.detect_first_movement():
+            self.motion_detected_flag = True
+        self.motion_detection_active = False
 
     def setup_arduino_buttons(self):
         """Setup Arduino buttons serial connection"""
@@ -842,7 +954,10 @@ class experiment():
                     if event.key == pygame.K_q:
                         running = False
                         break
-                    
+            # motion detection
+            self.motion_detector.detect_first_movement()
+            self.ts_motion_detect = self.motion_detector.ts_motion_detect
+            # self.wait_for_motion_with_display(self)
             # Only run trial if still running and display is active
             if running and pygame.display.get_surface() is not None:
                 try:
