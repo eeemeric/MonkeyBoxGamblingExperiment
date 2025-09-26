@@ -18,74 +18,242 @@ import cv2
 import numpy as np
 import math
 import traceback
+import queue
 
-class MotionDetector:
-    """Motion detection class that returns immediately on first movement"""
+class CameraDetectionSystem:
     def __init__(self):
+        print('Camera setup...')
+        # Camera setup
         self.cap = cv2.VideoCapture(0)
-        self.background = None
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        
+        # Face detection
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        
+        # Motion detection
+        self.background_subtractor = None
         self.motion_threshold = 5000
         self.frames_to_stabilize = 30
         
-    def detect_first_movement(self):
-        """
-        Detect first movement and return immediately.
-        Returns True if movement detected, False if detection fails.
-        """
-        print("Starting motion detection - waiting for first movement...")
-        self.ts_motion_detect = None
-
-        # Reset background
-        self.background = None
-        frame_count = 0
+        # Detection flags
+        self.motion_detected_flag = False
+        self.face_detected_flag = False
         
-        try:
-            while True:
-                ret, frame = self.cap.read()
-                if not ret:
-                    print("Failed to read from camera")
-                    return False
-                    
-                # Convert to grayscale
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                gray = cv2.GaussianBlur(gray, (21, 21), 0)
+        # Threading controls
+        self.detection_active = False
+        self.detection_thread = None
+        self.stop_detection = threading.Event()
+        
+        # Picture capture during trials
+        self.capture_pictures = False
+        self.picture_thread = None
+        self.picture_queue = queue.Queue()
+        self.trial_number = 0
+        
+    def reset_for_new_detection_cycle(self):
+        """Reset detection system for new motion->face cycle"""
+        print("Resetting detection system...")
+        
+        # Stop any existing detection
+        self.stop_all_detection()
+        
+        # Reset flags
+        self.motion_detected_flag = False
+        self.face_detected_flag = False
+        
+        # Create fresh background subtractor for motion detection
+        self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
+            detectShadows=False,
+            varThreshold=50,
+            history=500
+        )
+        
+        # Stabilize background model
+        print("Stabilizing background model...")
+        for i in range(self.frames_to_stabilize):
+            ret, frame = self.cap.read()
+            if ret:
+                self.background_subtractor.apply(frame)
                 
-                # Initialize/update background
-                if self.background is None:
-                    self.background = gray
-                    frame_count = 0
-                    continue
-                    
-                # Allow background to stabilize
-                if frame_count < self.frames_to_stabilize:
-                    self.background = cv2.addWeighted(self.background, 0.9, gray, 0.1, 0)
-                    frame_count += 1
-                    continue
-                    
-                # Calculate difference from stable background
-                frame_delta = cv2.absdiff(self.background, gray)
-                thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
-                thresh = cv2.dilate(thresh, None, iterations=2)
-                
-                # Find contours
-                contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                
-                # Check for significant motion
-                motion_area = sum(cv2.contourArea(c) for c in contours)
+        print("Detection system reset complete")
+    
+    def _detection_thread(self):
+        """Main detection thread: motion -> face detection"""
+        print("Detection thread started")
+        
+        while not self.stop_detection.is_set() and self.detection_active:
+            ret, frame = self.cap.read()
+            if not ret:
+                continue
+            
+            # Phase 1: Motion Detection
+            if not self.motion_detected_flag:
+                fg_mask = self.background_subtractor.apply(frame)
+                motion_area = cv2.countNonZero(fg_mask)
                 
                 if motion_area > self.motion_threshold:
-                    self.ts_motion_detect = pygame.time.get_ticks()
-                    print(f"First movement detected! Area: {motion_area}")
-                    return True  # RETURN IMMEDIATELY on first detection
+                    print(f"Motion detected! Area: {motion_area}")
+                    self.motion_detected_flag = True
                     
-        except Exception as e:
-            print(f"Motion detection error: {e}")
+            # Phase 2: Face Detection (only after motion detected)
+            elif not self.face_detected_flag:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = self.face_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(50, 50)
+                )
+                
+                if len(faces) > 0:
+                    print(f"Face detected! {len(faces)} face(s) found")
+                    self.face_detected_flag = True
+                    break  # Exit detection loop to run trial
+            
+            time.sleep(0.03)  # ~30 FPS
+        
+        print("Detection thread ended")
+    
+    def _picture_capture_thread(self, db_connection, trial_number):
+        """Capture pictures at 5 FPS during trial"""
+        print("Picture capture thread started")
+        frame_interval = 1.0 / 5.0  # 5 FPS = 0.2 seconds between frames
+        frame_number = 0
+        
+        while self.capture_pictures and not self.stop_detection.is_set():
+            start_time = time.time()
+            
+            ret, frame = self.cap.read()
+            if ret:
+                # Convert frame to JPEG for database storage
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                image_data = buffer.tobytes()
+                
+                # Store in queue for database insertion
+                picture_data = {
+                    'trial_number': trial_number,
+                    'timestamp': pygame.time.get_ticks(),
+                    'frame_number': frame_number,
+                    'image_data': image_data,
+                    'image_width': frame.shape[1],
+                    'image_height': frame.shape[0]
+                }
+                
+                self.picture_queue.put(picture_data)
+                frame_number += 1
+                
+                print(f"Captured frame {frame_number} for trial {trial_number}")
+            
+            # Maintain 5 FPS timing
+            elapsed = time.time() - start_time
+            sleep_time = max(0, frame_interval - elapsed)
+            time.sleep(sleep_time)
+        
+        print("Picture capture thread ended")
+    
+    def start_detection_cycle(self):
+        """Start motion->face detection cycle"""
+        if self.detection_thread and self.detection_thread.is_alive():
             return False
+            
+        self.detection_active = True
+        self.stop_detection.clear()
+        
+        self.detection_thread = threading.Thread(target=self._detection_thread)
+        self.detection_thread.daemon = True
+        self.detection_thread.start()
+        
+        return True
+    
+    def start_picture_capture(self, db_connection, trial_number):
+        """Start capturing pictures at 5 FPS during trial"""
+        if self.picture_thread and self.picture_thread.is_alive():
+            return False
+            
+        self.capture_pictures = True
+        self.trial_number = trial_number
+        
+        self.picture_thread = threading.Thread(
+            target=self._picture_capture_thread,
+            args=(db_connection, trial_number)
+        )
+        self.picture_thread.daemon = True
+        self.picture_thread.start()
+        
+        return True
+    
+    def stop_picture_capture(self):
+        """Stop picture capture"""
+        self.capture_pictures = False
+        
+        if self.picture_thread and self.picture_thread.is_alive():
+            self.picture_thread.join(timeout=1.0)
+    
+    def stop_all_detection(self):
+        """Stop all detection threads"""
+        self.detection_active = False
+        self.capture_pictures = False
+        self.stop_detection.set()
+        
+        # Wait for threads to finish
+        if self.detection_thread and self.detection_thread.is_alive():
+            self.detection_thread.join(timeout=1.0)
+            
+        if self.picture_thread and self.picture_thread.is_alive():
+            self.picture_thread.join(timeout=1.0)
+    
+    def is_motion_detected(self):
+        """Check if motion has been detected"""
+        return self.motion_detected_flag
+    
+    def is_face_detected(self):
+        """Check if face has been detected"""
+        return self.face_detected_flag
+    
+    def save_captured_pictures(self, db_connection):
+        """Save all captured pictures to database"""
+        if not db_connection:
+            return
+            
+        cursor = db_connection.cursor()
+        pictures_saved = 0
+        
+        while not self.picture_queue.empty():
+            try:
+                picture_data = self.picture_queue.get_nowait()
+                
+                cursor.execute('''INSERT INTO trial_pictures 
+                    (trial_number, timestamp, frame_number, image_data, image_width, image_height)
+                    VALUES (?, ?, ?, ?, ?, ?)''',
+                    (picture_data['trial_number'],
+                     picture_data['timestamp'],
+                     picture_data['frame_number'],
+                     picture_data['image_data'],
+                     picture_data['image_width'],
+                     picture_data['image_height']))
+                
+                pictures_saved += 1
+                
+            except queue.Empty:
+                break
+            except Exception as e:
+                print(f"Error saving picture: {e}")
+        
+        if pictures_saved > 0:
+            db_connection.commit()
+            print(f"Saved {pictures_saved} pictures to database")
     
     def cleanup(self):
-        """Clean up camera resources"""
+        """Cleanup all resources"""
+        self.stop_all_detection()
         if self.cap:
             self.cap.release()
+        cv2.destroyAllWindows()
+
+
+
 
 class experiment():
     def __init__(self):
@@ -288,8 +456,11 @@ class experiment():
         self.db_connection = None
         self.setup_database()
         
-        # Motion detection
-        self.motion_detector = MotionDetector()
+        # Initialize camera detection system
+        self.camera_system = CameraDetectionSystem() 
+        # Detection timeouts
+        self.MOTION_TIMEOUT = 300  # 5 minutes
+        self.FACE_TIMEOUT = 10     # 10 seconds
 
         # Arduino setup
         self.arduino_buttons = None
@@ -301,47 +472,6 @@ class experiment():
         self.reward_max_position = 10
         self.reward_current_position = 0
         self.setup_arduino_reward()
-
-    def wait_for_motion_with_display(self):
-        """
-        Wait for motion while updating the display.
-        This function blocks until motion is detected or user quits.
-        """
-        print("Waiting for first movement...")
-        
-        # Start motion detection in a separate thread
-        motion_thread = threading.Thread(target=self._motion_detection_thread)
-        motion_thread.daemon = True
-        self.motion_detection_active = True
-        self.motion_detected_flag = False
-        motion_thread.start()
-        
-        # Keep updating display while waiting for motion
-        while self.motion_detection_active and not self.motion_detected_flag:
-            # Handle pygame events
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.motion_detection_active = False
-                    return False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_q:
-                        self.motion_detection_active = False
-                        return False
-            self.clock.tick(60)
-        
-        # Motion was detected
-        if self.motion_detected_flag:
-            self.motion_detected_timestamp = pygame.time.get_ticks()
-            print(f"Motion detected at {self.motion_detected_timestamp}ms")
-            return True
-        
-        return False
-
-    def _motion_detection_thread(self):
-        """Motion detection thread that sets a flag when motion is detected"""
-        if self.motion_detector.detect_first_movement():
-            self.motion_detected_flag = True
-        self.motion_detection_active = False
 
     def setup_arduino_buttons(self):
         """Setup Arduino buttons serial connection"""
@@ -475,15 +605,79 @@ class experiment():
                 ts_trial_end INTEGER
             )''')
             
-            # Remove pictures table creation:
-            # cursor.execute('''CREATE TABLE IF NOT EXISTS trial_pictures ...''')
+           # New pictures table for trial photos
+            cursor.execute('''CREATE TABLE IF NOT EXISTS trial_pictures (
+                picture_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trial_number INTEGER,
+                timestamp INTEGER,
+                frame_number INTEGER,
+                image_data BLOB,
+                image_width INTEGER,
+                image_height INTEGER,
+                FOREIGN KEY (trial_number) REFERENCES trial_data (trial_number)
+            )''')
             
             self.db_connection.commit()
             print("Database table created successfully")
             
         except Exception as e:
             print(f"Database setup error: {e}")
+
+    def wait_for_motion_and_face(self):
+        """
+        Wait for motion detection, then face detection
+        Returns True if both detected, False otherwise
+        """
+        # Reset detection system
+        self.camera_system.reset_for_new_detection_cycle()
+        
+        # Start detection cycle
+        self.camera_system.start_detection_cycle()
+        
+        print("Waiting for motion detection...")
+        motion_start_time = time.time()
+        
+        # Wait for motion detection
+        while time.time() - motion_start_time < self.MOTION_TIMEOUT:
+            if self.camera_system.is_motion_detected():
+                self.ts_motion_detect = pygame.time.get_ticks()
+                print(f"Motion detected at {self.ts_motion_detect} ms!")
+                break
+                
+            # Handle pygame events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                    return False
             
+            time.sleep(0.01)
+        else:
+            print("Motion detection timeout")
+            return False
+        
+        # Now wait for face detection
+        print("Motion detected! Now waiting for face...")
+        face_start_time = time.time()
+        
+        while time.time() - face_start_time < self.FACE_TIMEOUT:
+            if self.camera_system.is_face_detected():
+                self.ts_face_detect = pygame.time.get_ticks()
+                print(f"Face detected at {self.ts_face_detect} ms!")
+                return True
+                
+            # Handle pygame events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                    return False
+            
+            time.sleep(0.01)
+        
+        print("Face detection timeout - returning to motion detection")
+        return False
+
     def setup_new_trial(self):
         # time stamps
         self.ts_trial_start = pygame.time.get_ticks()
@@ -902,15 +1096,20 @@ class experiment():
             print(f"Database logging error: {e}")
     
     def run_trial(self):
-        print(f"Running Trial {self.total_trial_counter + 1}")
-        
+        print(f"Running Trial {self.total_trial_counter + 1}")      
+        # Start picture capture at 5 FPS
+        self.camera_system.start_picture_capture(
+            self.db_connection, 
+            self.total_trial_counter + 1
+        )
+
         # Arduino LED control: ON
         if self.arduino_buttons_connected:
             try:
                 self.arduino_buttons.write("3\n".encode('utf-8'))
             except Exception as e:
                 print(f"Arduino write error: {e}")
-                
+
         self.setup_new_trial()
         self.draw_stimuli()
         pygame.display.flip()
@@ -928,6 +1127,13 @@ class experiment():
         self.reveal_outcome()
         pygame.time.delay(250)
         self.deliver_reward()
+
+         # Stop picture capture
+        self.camera_system.stop_picture_capture()
+        
+        # Save captured pictures to database
+        self.camera_system.save_captured_pictures(self.db_connection)
+
         self.log_trial_data()
         
         # clear display wait ITI befor initiating next trial
@@ -940,9 +1146,11 @@ class experiment():
             self.current_trials_counter += 1
             
     def run(self):
-        print('Running: Gambling Experiment')
+        """Main experiment loop with camera detection"""
+        print('Running: Gambling Experiment with Camera Detection')
         running = True
         clock = pygame.time.Clock() 
+
         while running: 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -954,20 +1162,38 @@ class experiment():
                     if event.key == pygame.K_q:
                         running = False
                         break
-            # motion detection
-            self.motion_detector.detect_first_movement()
-            self.ts_motion_detect = self.motion_detector.ts_motion_detect
-            # self.wait_for_motion_with_display(self)
-            # Only run trial if still running and display is active
-            if running and pygame.display.get_surface() is not None:
-                try:
-                    self.run_trial()
-                except pygame.error as e:
-                    if "display Surface quit" in str(e):
-                        print("Display closed, ending experiment")
-                        running = False
-                    else:
-                        raise e
+            # use connected camera to 
+            #   first detect motion
+            #   then detect face
+            #       if face detected, run_trial
+            #           take still pictures during the trial at 5 frames per second and write to sqlite database
+            #       if face not detected go back to motion detection
+
+            # Camera detection cycle: motion -> face -> trial
+            if not self.SIMULATE:
+                if self.wait_for_motion_and_face():
+                    # Both motion and face detected, run trial
+                    if running and pygame.display.get_surface() is not None:
+                        try:
+                            self.run_trial()
+                        except pygame.error as e:
+                            if "display Surface quit" in str(e):
+                                print("Display closed, ending experiment")
+                                running = False
+                            else:
+                                raise e
+                # If face not detected, loop continues to motion detection
+            else:
+                # Only run trial if still running and display is active
+                if running and pygame.display.get_surface() is not None:
+                    try:
+                        self.run_trial()
+                    except pygame.error as e:
+                        if "display Surface quit" in str(e):
+                            print("Display closed, ending experiment")
+                            running = False
+                        else:
+                            raise e
             
             clock.tick(60)  # Limit to 60 FPS
         
