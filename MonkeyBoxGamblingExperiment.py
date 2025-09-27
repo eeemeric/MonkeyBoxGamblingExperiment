@@ -349,7 +349,21 @@ class experiment():
                             (4,	1,	0.1,	3,   0,  1),
                             (4,	1,	0.1,	4,   0,  1)]
 
-        self.gmbl_gmbl_conditions = [(7,	4,	0.5,	4,   0,  1)]
+        self.gmbl_gmbl_conditions = [(7,	1,	0.50,	7,	2,	0.40),
+                                     (7,	1,	0.50,	6,	2,	0.50),
+                                     (7,	1,	0.50,	6,	1,	0.60), 
+                                     (7,	1,	0.50,	5,	1,	0.75),
+                                     (7,	1,	0.50,	7,	3,	0.25),
+                                     (7,	2,	0.40,	6,	2,	0.50),
+                                     (7,	2,	0.40,	6,	1,	0.60),
+                                     (7,	2,	0.40,	5,	1,	0.75),
+                                     (7,	2,	0.40,	7,	3,	0.25),
+                                     (6,	2,	0.50,	6,	1,	0.60),
+                                     (6,	2,	0.50,	5,	1,	0.75),
+                                     (6,	2,	0.50,	7,	3,	0.25),
+                                     (6,	1,	0.60,	5,	1,	0.75),
+                                     (6,	1,	0.60,	7,	3,	0.25),
+                                     (5,	1,	0.75,	7,	3,	0.25)]
         
         if self.DEBUG:
             self.current_conditions =  self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions 
@@ -718,6 +732,8 @@ class experiment():
             self.trial_type = 'choice sure'
         if self.pWin1 < 1 and self.pWin2 == 1:
             self.trial_type = 'choice gamble sure'
+        if self.pWin1 < 1 and self.pWin2 < 1:
+            self.trial_type = 'choice gamble gamble'
 
         # option 1 on right
         print(f"Initialializing trial {self.total_trial_counter+1}")
@@ -737,8 +753,29 @@ class experiment():
         # self.opt_sp_config = 'left'
 
         if self.opt_sp_config == 'left':
+            """ 
+            # draw option 1 on the left
             self.left_color_Lose  = self.COLORS[self.lose_Amount1-1]
             self.left_color_Win   = self.COLORS[self.win_Amount1-1]
+
+            # always draw lose option first but only if pWin1<1
+            if self.pWin1 < 1:
+                # draw full circle. color: lose amount 1
+                pygame.draw.circle(self.screen, self.left_color_Lose, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS)
+            # draw smaller circle. color: win amount 1
+            pygame.draw.circle(self.screen, self.left_color_Win, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS*self.pWin1)
+            
+                
+            # draw option 2 on the right
+            self.right_color_Lose  = self.COLORS[self.lose_Amount2-1]
+            self.right_color_Win   = self.COLORS[self.win_Amount2-1]
+
+            # always draw lose option first but only if pWin1<1
+            if self.pWin2 < 1: ...
+            """
+            self.left_color_Lose  = self.COLORS[self.lose_Amount1-1]
+            self.left_color_Win   = self.COLORS[self.win_Amount1-1]
+            
             # draw option 1 on the left 
             if self.pWin1 < 1 and self.pWin1 > 0:
                 # draw full circle. color: lose amount 1
