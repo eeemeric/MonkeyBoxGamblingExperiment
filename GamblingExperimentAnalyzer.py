@@ -52,6 +52,13 @@ import cv2
 from PIL import Image
 import io
 import sys
+from scipy.optimize import curve_fit
+from scipy.stats import logistic
+import warnings
+from sklearn.cluster import DBSCAN
+from sklearn.metrics import pairwise_distances
+import matplotlib.pyplot as plt
+from collections import defaultdict
 
 # GUI imports with fallback handling
 try:
@@ -430,6 +437,1104 @@ class GamblingExperimentAnalyzer:
         
         return analysis
     
+    def analyze_gamble_vs_sure_choices(self, output_dir='plots'):
+        """
+        For 'choice gamble sure' trials, fit logistic functions to probability of choosing gamble 
+        as a function of guaranteed amount for each unique gamble option
+        """
+        if self.trial_data is None:
+            self.load_trial_data()
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Filter for 'choice gamble sure' trials only
+        gamble_sure_trials = self.trial_data[
+            self.trial_data['trial_type'] == 'choice gamble sure'
+        ].copy()
+        
+        if len(gamble_sure_trials) == 0:
+            print("No 'choice gamble sure' trials found in the data")
+            return
+        
+        print(f"Analyzing {len(gamble_sure_trials)} 'choice gamble sure' trials")
+        
+        # Determine which option was the gamble and which was sure
+        gamble_sure_trials['gamble_win_amount'] = gamble_sure_trials['win_Amount1']
+        gamble_sure_trials['gamble_lose_amount'] = gamble_sure_trials['lose_Amount1'] 
+        gamble_sure_trials['gamble_prob'] = gamble_sure_trials['pWin1']
+        gamble_sure_trials['sure_amount'] = gamble_sure_trials['win_Amount2']
+        
+        # Calculate expected value of gamble
+        gamble_sure_trials['gamble_ev'] = (
+            gamble_sure_trials['gamble_win_amount'] * gamble_sure_trials['gamble_prob'] +
+            gamble_sure_trials['gamble_lose_amount'] * (1 - gamble_sure_trials['gamble_prob'])
+        )
+        
+        # Create gamble option identifier
+        gamble_sure_trials['gamble_option'] = (
+            'Win: ' + gamble_sure_trials['gamble_win_amount'].astype(str) + 
+            ', Lose: ' + gamble_sure_trials['gamble_lose_amount'].astype(str) + 
+            ', P: ' + gamble_sure_trials['gamble_prob'].astype(str)
+        )
+        
+        # Determine if gamble was chosen
+        gamble_sure_trials['chose_gamble'] = (
+            gamble_sure_trials['options_spacial_config'] == gamble_sure_trials['choice']
+        )
+        
+        # Get unique gamble options
+        unique_gambles = sorted(gamble_sure_trials['gamble_option'].unique())
+        
+        print(f"\nFound {len(unique_gambles)} unique gamble options:")
+        for i, gamble in enumerate(unique_gambles):
+            count = len(gamble_sure_trials[gamble_sure_trials['gamble_option'] == gamble])
+            print(f"  {i+1}. {gamble} ({count} trials)")
+        
+        # Define logistic function
+        def logistic_function(x, b0, b1):
+            """Logistic function: P(G) = 1 / (1 + exp(-(b0 + b1*x)))"""
+            return 1 / (1 + np.exp(-(b0 + b1 * x)))
+        
+        # Store fit results
+        fit_results = {}
+        
+        # Create the main plot
+        plt.figure(figsize=(16, 12))
+        
+        # Plot 1: Logistic fits vs guaranteed amount
+        plt.subplot(2, 2, 1)
+        
+        colors = plt.cm.tab10(np.linspace(0, 1, len(unique_gambles)))
+        
+        for i, gamble_option in enumerate(unique_gambles):
+            # Filter data for this gamble option
+            gamble_data = gamble_sure_trials[
+                gamble_sure_trials['gamble_option'] == gamble_option
+            ].copy()
+            
+            print(f"\nAnalyzing: {gamble_option}")
+            print(f"Total trials: {len(gamble_data)}")
+            
+            # Group by sure amount and calculate probability of choosing gamble
+            prob_data = gamble_data.groupby('sure_amount').agg({
+                'chose_gamble': ['mean', 'count', 'sum']
+            }).round(4)
+            
+            prob_data.columns = ['prob_choose_gamble', 'n_trials', 'n_chose_gamble']
+            prob_data = prob_data.reset_index()
+            
+            if len(prob_data) > 2:  # Need at least 3 points for fitting
+                # Get gamble expected value (constant for this gamble option)
+                gamble_ev = gamble_data['gamble_ev'].iloc[0]
+                
+                # Fit logistic regression using guaranteed amount as predictor
+                x_data = prob_data['sure_amount'].values
+                y_data = prob_data['prob_choose_gamble'].values
+                
+                # Remove any NaN or extreme values
+                valid_mask = ~np.isnan(y_data) & (y_data >= 0) & (y_data <= 1)
+                x_data = x_data[valid_mask]
+                y_data = y_data[valid_mask]
+                
+                if len(x_data) > 2:
+                    try:
+                        # Fit logistic curve
+                        # Initial parameter guesses
+                        p0 = [0, -1]  # b0, b1
+                        
+                        # Fit with bounds to ensure reasonable parameters
+                        bounds = ([-10, -10], [10, 10])
+                        popt, pcov = curve_fit(logistic_function, x_data, y_data, 
+                                            p0=p0, bounds=bounds, maxfev=5000)
+                        
+                        b0, b1 = popt
+                        
+                        # Calculate subjective value (where P(G) = 0.5)
+                        # 0.5 = 1 / (1 + exp(-(b0 + b1*SV)))
+                        # ln(1) = -(b0 + b1*SV)
+                        # 0 = -(b0 + b1*SV)
+                        # SV = -b0/b1
+                        if b1 != 0:
+                            subjective_value = -b0 / b1
+                        else:
+                            subjective_value = np.nan
+                        
+                        # Store results
+                        fit_results[gamble_option] = {
+                            'b0': b0,
+                            'b1': b1,
+                            'subjective_value': subjective_value,
+                            'gamble_ev': gamble_ev,
+                            'r_squared': None  # Will calculate below
+                        }
+                        
+                        # Calculate R-squared
+                        y_pred = logistic_function(x_data, b0, b1)
+                        ss_res = np.sum((y_data - y_pred) ** 2)
+                        ss_tot = np.sum((y_data - np.mean(y_data)) ** 2)
+                        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                        fit_results[gamble_option]['r_squared'] = r_squared
+                        
+                        # Plot data points
+                        plt.scatter(x_data, y_data, color=colors[i], s=80, alpha=0.7, 
+                                label=f'{gamble_option}')
+                        
+                        # Plot fitted curve
+                        x_smooth = np.linspace(x_data.min() - 0.5, x_data.max() + 0.5, 100)
+                        y_smooth = logistic_function(x_smooth, b0, b1)
+                        plt.plot(x_smooth, y_smooth, color=colors[i], linewidth=2, alpha=0.8)
+                        
+                        # Mark subjective value
+                        if not np.isnan(subjective_value) and x_data.min() <= subjective_value <= x_data.max():
+                            plt.axvline(x=subjective_value, color=colors[i], linestyle='--', alpha=0.5)
+                            plt.text(subjective_value, 0.5, f'SV={subjective_value:.2f}', 
+                                rotation=90, color=colors[i], fontsize=8)
+                        
+                        # Add data point annotations
+                        for _, row in prob_data.iterrows():
+                            if row['sure_amount'] in x_data:
+                                plt.annotate(f"{row['n_chose_gamble']:.0f}/{row['n_trials']:.0f}", 
+                                        (row['sure_amount'], row['prob_choose_gamble']),
+                                        xytext=(5, 5), textcoords='offset points', 
+                                        fontsize=7, alpha=0.6)
+                        
+                        print(f"Logistic fit: b0={b0:.3f}, b1={b1:.3f}, SV={subjective_value:.3f}, R²={r_squared:.3f}")
+                        
+                    except Exception as e:
+                        print(f"Could not fit logistic curve for {gamble_option}: {e}")
+                        # Plot raw data without fit
+                        plt.scatter(x_data, y_data, color=colors[i], s=80, alpha=0.7, 
+                                label=f'{gamble_option} (no fit)')
+                else:
+                    print(f"Not enough valid data points for {gamble_option}")
+        
+        plt.xlabel('Guaranteed Amount (Sure Option)', fontsize=12)
+        plt.ylabel('Probability of Choosing Gamble', fontsize=12)
+        plt.title('Logistic Fits: P(Gamble) vs Guaranteed Amount', fontsize=14, fontweight='bold')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9)
+        plt.grid(True, alpha=0.3)
+        plt.ylim(-0.05, 1.05)
+        plt.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='P(G) = 0.5')
+        
+        # Plot 2: Logistic fits vs Expected Value difference
+        plt.subplot(2, 2, 2)
+        
+        for i, gamble_option in enumerate(unique_gambles):
+            gamble_data = gamble_sure_trials[
+                gamble_sure_trials['gamble_option'] == gamble_option
+            ]
+            
+            if len(gamble_data) > 0:
+                gamble_ev = gamble_data['gamble_ev'].iloc[0]
+                
+                prob_data = gamble_data.groupby('sure_amount').agg({
+                    'chose_gamble': ['mean', 'count']
+                }).round(4)
+                prob_data.columns = ['prob_choose_gamble', 'n_trials']
+                prob_data = prob_data.reset_index()
+                
+                # Calculate EV difference (Gamble EV - Sure Amount)
+                prob_data['ev_difference'] = gamble_ev - prob_data['sure_amount']
+                
+                if len(prob_data) > 2:
+                    x_data = prob_data['ev_difference'].values
+                    y_data = prob_data['prob_choose_gamble'].values
+                    
+                    valid_mask = ~np.isnan(y_data) & (y_data >= 0) & (y_data <= 1)
+                    x_data = x_data[valid_mask]
+                    y_data = y_data[valid_mask]
+                    
+                    if len(x_data) > 2:
+                        try:
+                            # Fit logistic curve to EV difference
+                            popt, _ = curve_fit(logistic_function, x_data, y_data, 
+                                            p0=[0, 1], bounds=([-10, -10], [10, 10]), maxfev=5000)
+                            b0_ev, b1_ev = popt
+                            
+                            # Plot data points
+                            plt.scatter(x_data, y_data, color=colors[i], s=80, alpha=0.7)
+                            
+                            # Plot fitted curve
+                            x_smooth = np.linspace(x_data.min() - 0.5, x_data.max() + 0.5, 100)
+                            y_smooth = logistic_function(x_smooth, b0_ev, b1_ev)
+                            plt.plot(x_smooth, y_smooth, color=colors[i], linewidth=2, alpha=0.8,
+                                label=f'{gamble_option}')
+                            
+                        except Exception as e:
+                            plt.scatter(x_data, y_data, color=colors[i], s=80, alpha=0.7,
+                                    label=f'{gamble_option} (no fit)')
+        
+        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5, label='Equal EV')
+        plt.axhline(y=0.5, color='black', linestyle=':', alpha=0.5)
+        plt.xlabel('Expected Value Difference (Gamble EV - Sure Amount)', fontsize=12)
+        plt.ylabel('Probability of Choosing Gamble', fontsize=12)
+        plt.title('Logistic Fits: P(Gamble) vs EV Difference', fontsize=14)
+        plt.legend(fontsize=9)
+        plt.grid(True, alpha=0.3)
+        plt.ylim(-0.05, 1.05)
+        
+        # Plot 3: Subjective values vs Expected values
+        plt.subplot(2, 2, 3)
+        
+        if fit_results:
+            gamble_evs = []
+            subjective_values = []
+            labels = []
+            
+            for i, (gamble_option, results) in enumerate(fit_results.items()):
+                if not np.isnan(results['subjective_value']):
+                    gamble_evs.append(results['gamble_ev'])
+                    subjective_values.append(results['subjective_value'])
+                    labels.append(f"G{i+1}")
+            
+            if len(gamble_evs) > 0:
+                plt.scatter(gamble_evs, subjective_values, s=100, alpha=0.7)
+                
+                # Add labels
+                for i, label in enumerate(labels):
+                    plt.annotate(label, (gamble_evs[i], subjective_values[i]), 
+                            xytext=(5, 5), textcoords='offset points', fontsize=10)
+                
+                # Plot unity line
+                min_val = min(min(gamble_evs), min(subjective_values))
+                max_val = max(max(gamble_evs), max(subjective_values))
+                plt.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, label='Unity')
+                
+                plt.xlabel('Gamble Expected Value', fontsize=12)
+                plt.ylabel('Subjective Value (P(G) = 0.5)', fontsize=12)
+                plt.title('Subjective vs Expected Values', fontsize=14)
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+        
+        # Plot 4: Fit parameters table
+        plt.subplot(2, 2, 4)
+        plt.axis('off')
+        
+        if fit_results:
+            table_data = []
+            for i, (gamble_option, results) in enumerate(fit_results.items()):
+                table_data.append([
+                    f"G{i+1}",
+                    f"{results['b0']:.3f}",
+                    f"{results['b1']:.3f}",
+                    f"{results['subjective_value']:.2f}" if not np.isnan(results['subjective_value']) else "N/A",
+                    f"{results['gamble_ev']:.2f}",
+                    f"{results['r_squared']:.3f}" if results['r_squared'] is not None else "N/A"
+                ])
+            
+            table = plt.table(cellText=table_data,
+                            colLabels=['Gamble', 'b₀', 'b₁', 'Subj. Value', 'Gamble EV', 'R²'],
+                            cellLoc='center',
+                            loc='center',
+                            bbox=[0, 0, 1, 1])
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1, 2)
+            
+            # Style the table
+            for i in range(len(table_data) + 1):
+                for j in range(6):
+                    cell = table[(i, j)]
+                    if i == 0:  # Header
+                        cell.set_facecolor('#4CAF50')
+                        cell.set_text_props(weight='bold', color='white')
+                    else:
+                        cell.set_facecolor('#f0f0f0' if i % 2 == 0 else 'white')
+            
+            plt.title('Logistic Regression Parameters', fontsize=12, pad=20)
+        
+        plt.suptitle('Logistic Regression Analysis: Gamble vs Sure Choices', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        
+        # Save plot
+        plot_path = os.path.join(output_dir, 'logistic_gamble_vs_sure_analysis.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"\nLogistic regression analysis plot saved to: {plot_path}")
+        
+        # Print detailed results
+        print("\n" + "="*80)
+        print("LOGISTIC REGRESSION RESULTS")
+        print("="*80)
+        print("Model: log[P(G)/(1-P(G))] = b₀ + b₁ * Sure_Amount")
+        print("Subjective Value = -b₀/b₁ (where P(G) = 0.5)")
+        print("-"*80)
+        
+        for i, (gamble_option, results) in enumerate(fit_results.items()):
+            print(f"\nGamble Option {i+1}: {gamble_option}")
+            print(f"  Expected Value: {results['gamble_ev']:.3f}")
+            print(f"  b₀ (intercept): {results['b0']:.3f}")
+            print(f"  b₁ (slope):     {results['b1']:.3f}")
+            print(f"  Subjective Value: {results['subjective_value']:.3f}")
+            print(f"  R²:             {results['r_squared']:.3f}")
+            
+            # Interpretation
+            if results['subjective_value'] > results['gamble_ev']:
+                print(f"  → Risk-seeking behavior (SV > EV)")
+            elif results['subjective_value'] < results['gamble_ev']:
+                print(f"  → Risk-averse behavior (SV < EV)")
+            else:
+                print(f"  → Risk-neutral behavior (SV ≈ EV)")
+        
+        return gamble_sure_trials, fit_results
+
+    def identify_unique_subjects_from_images(self, output_dir='subject_analysis'):
+        """
+        Identify unique subjects from captured trial images using face recognition
+        and track which trials each subject appears in
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Load face detection and recognition models
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        
+        # Try to load face recognition model (requires dlib and face_recognition)
+        try:
+            import face_recognition
+            USE_FACE_RECOGNITION = True
+            print("Using face_recognition library for subject identification")
+        except ImportError:
+            USE_FACE_RECOGNITION = False
+            print("face_recognition library not available. Using basic face detection and feature matching.")
+        
+        # Load picture data from database
+        cursor = self.connection.cursor()
+        
+        # Get all pictures with image data
+        query = """
+        SELECT picture_id, trial_number, frame_number, image_data, timestamp
+        FROM trial_pictures 
+        ORDER BY trial_number, frame_number
+        """
+        cursor.execute(query)
+        pictures = cursor.fetchall()
+        
+        if len(pictures) == 0:
+            print("No pictures found in database")
+            return None
+        
+        print(f"Analyzing {len(pictures)} pictures for subject identification...")
+        
+        # Store face data for each picture
+        face_data = []
+        valid_pictures = []
+        
+        # Process each picture
+        for i, (picture_id, trial_number, frame_number, image_data, timestamp) in enumerate(pictures):
+            if i % 50 == 0:
+                print(f"Processing picture {i+1}/{len(pictures)}")
+            
+            try:
+                # Convert blob to image
+                image_array = np.frombuffer(image_data, dtype=np.uint8)
+                image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                
+                if image is None:
+                    continue
+                
+                if USE_FACE_RECOGNITION:
+                    # Use face_recognition library
+                    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    
+                    # Find face locations
+                    face_locations = face_recognition.face_locations(rgb_image)
+                    
+                    if len(face_locations) > 0:
+                        # Get face encodings
+                        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+                        
+                        for j, (encoding, location) in enumerate(zip(face_encodings, face_locations)):
+                            face_data.append({
+                                'picture_id': picture_id,
+                                'trial_number': trial_number,
+                                'frame_number': frame_number,
+                                'timestamp': timestamp,
+                                'face_encoding': encoding,
+                                'face_location': location,
+                                'face_index': j,
+                                'method': 'face_recognition'
+                            })
+                            valid_pictures.append((picture_id, trial_number, frame_number, image))
+                
+                else:
+                    # Use OpenCV face detection with feature extraction
+                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+                    
+                    for j, (x, y, w, h) in enumerate(faces):
+                        # Extract face region
+                        face_roi = gray[y:y+h, x:x+w]
+                        
+                        # Resize to standard size for comparison
+                        face_roi_resized = cv2.resize(face_roi, (100, 100))
+                        
+                        # Extract features using histogram
+                        hist_features = cv2.calcHist([face_roi_resized], [0], None, [256], [0, 256]).flatten()
+                        
+                        # Extract LBP features (Local Binary Patterns)
+                        lbp_features = self._extract_lbp_features(face_roi_resized)
+                        
+                        # Combine features
+                        combined_features = np.concatenate([hist_features, lbp_features])
+                        
+                        face_data.append({
+                            'picture_id': picture_id,
+                            'trial_number': trial_number,
+                            'frame_number': frame_number,
+                            'timestamp': timestamp,
+                            'face_encoding': combined_features,
+                            'face_location': (x, y, w, h),
+                            'face_index': j,
+                            'method': 'opencv_features'
+                        })
+                        valid_pictures.append((picture_id, trial_number, frame_number, image))
+            
+            except Exception as e:
+                print(f"Error processing picture {picture_id}: {e}")
+                continue
+        
+        if len(face_data) == 0:
+            print("No faces detected in any pictures")
+            return None
+        
+        print(f"Found {len(face_data)} face instances across {len(set([f['trial_number'] for f in face_data]))} trials")
+        
+        # Cluster faces to identify unique subjects
+        face_encodings = np.array([face['face_encoding'] for face in face_data])
+        
+        if USE_FACE_RECOGNITION:
+            # Use face_recognition distance metric
+            distances = pairwise_distances(face_encodings, metric='euclidean')
+            # Use DBSCAN clustering
+            clustering = DBSCAN(eps=0.6, min_samples=2, metric='precomputed')
+            cluster_labels = clustering.fit_predict(distances)
+        else:
+            # Use cosine similarity for feature vectors
+            clustering = DBSCAN(eps=0.3, min_samples=2, metric='cosine')
+            cluster_labels = clustering.fit_predict(face_encodings)
+        
+        # Assign cluster labels to face data
+        for i, face in enumerate(face_data):
+            face['subject_id'] = cluster_labels[i]
+        
+        # Analyze results
+        unique_subjects = set(cluster_labels)
+        if -1 in unique_subjects:
+            unique_subjects.remove(-1)  # Remove noise cluster
+        
+        print(f"Identified {len(unique_subjects)} unique subjects")
+        print(f"Number of unclassified faces (noise): {sum(1 for label in cluster_labels if label == -1)}")
+        
+        # Create subject analysis
+        subject_analysis = {}
+        
+        for subject_id in unique_subjects:
+            subject_faces = [face for face in face_data if face['subject_id'] == subject_id]
+            
+            # Get trials for this subject
+            subject_trials = sorted(set([face['trial_number'] for face in subject_faces]))
+            
+            # Calculate statistics
+            total_appearances = len(subject_faces)
+            trials_present = len(subject_trials)
+            
+            # Get time range
+            timestamps = [face['timestamp'] for face in subject_faces]
+            time_range = (min(timestamps), max(timestamps))
+            
+            subject_analysis[subject_id] = {
+                'total_face_detections': total_appearances,
+                'trials_present': subject_trials,
+                'num_trials': trials_present,
+                'time_range': time_range,
+                'faces': subject_faces
+            }
+        
+        # Create visualizations
+        self._create_subject_analysis_plots(subject_analysis, face_data, valid_pictures, output_dir)
+        
+        # Print detailed analysis
+        print("\n" + "="*80)
+        print("SUBJECT IDENTIFICATION ANALYSIS")
+        print("="*80)
+        
+        for subject_id in sorted(unique_subjects):
+            analysis = subject_analysis[subject_id]
+            print(f"\nSubject {subject_id}:")
+            print(f"  Total face detections: {analysis['total_face_detections']}")
+            print(f"  Number of trials present: {analysis['num_trials']}")
+            print(f"  Trials: {analysis['trials_present']}")
+            print(f"  Time range: {analysis['time_range'][0]} - {analysis['time_range'][1]} ms")
+            
+            # Calculate trial participation rate
+            if hasattr(self, 'trial_data') and self.trial_data is not None:
+                total_trials = len(self.trial_data)
+                participation_rate = (analysis['num_trials'] / total_trials) * 100
+                print(f"  Participation rate: {participation_rate:.1f}% ({analysis['num_trials']}/{total_trials} trials)")
+        
+        # Analyze trial overlap between subjects
+        print(f"\n--- TRIAL OVERLAP ANALYSIS ---")
+        subject_ids = sorted(unique_subjects)
+        
+        for i, subj1 in enumerate(subject_ids):
+            for subj2 in subject_ids[i+1:]:
+                trials1 = set(subject_analysis[subj1]['trials_present'])
+                trials2 = set(subject_analysis[subj2]['trials_present'])
+                
+                overlap = trials1.intersection(trials2)
+                if len(overlap) > 0:
+                    print(f"Subjects {subj1} and {subj2} both present in {len(overlap)} trials: {sorted(overlap)}")
+
+        # Create summary table
+        self._create_subject_summary_table(subject_analysis, output_dir)
+        
+        return subject_analysis, face_data
+
+    def _create_subject_analysis_plots(self, subject_analysis, face_data, valid_pictures, output_dir):
+        """Create visualization plots for subject analysis including example images"""
+        
+        # Create a mapping from picture_id to image
+        picture_dict = {pic_id: img for pic_id, trial, frame, img in valid_pictures}
+        
+        # Calculate number of subjects for layout
+        n_subjects = len(subject_analysis)
+        if n_subjects == 0:
+            return
+        
+        # Create main analysis figure
+        fig = plt.figure(figsize=(20, 16))
+        
+        # Plot 1: Subject presence across trials (top left)
+        ax1 = plt.subplot(3, 3, 1)
+        
+        colors = plt.cm.tab10(np.linspace(0, 1, n_subjects))
+        
+        for i, (subject_id, analysis) in enumerate(subject_analysis.items()):
+            trials = analysis['trials_present']
+            y_pos = [subject_id] * len(trials)
+            ax1.scatter(trials, y_pos, alpha=0.7, s=50, color=colors[i], 
+                    label=f'Subject {subject_id}')
+        
+        ax1.set_xlabel('Trial Number')
+        ax1.set_ylabel('Subject ID')
+        ax1.set_title('Subject Presence Across Trials')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot 2: Subject participation summary (top middle)
+        ax2 = plt.subplot(3, 3, 2)
+        
+        subject_ids = list(subject_analysis.keys())
+        trial_counts = [analysis['num_trials'] for analysis in subject_analysis.values()]
+        detection_counts = [analysis['total_face_detections'] for analysis in subject_analysis.values()]
+        
+        x = np.arange(len(subject_ids))
+        width = 0.35
+        
+        ax2.bar(x - width/2, trial_counts, width, label='Trials Present', alpha=0.7, color='skyblue')
+        ax2.bar(x + width/2, detection_counts, width, label='Total Detections', alpha=0.7, color='lightcoral')
+        
+        ax2.set_xlabel('Subject ID')
+        ax2.set_ylabel('Count')
+        ax2.set_title('Subject Participation Summary')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels([f'Subject {sid}' for sid in subject_ids])
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        # Plot 3: Trial overlap heatmap (top right)
+        ax3 = plt.subplot(3, 3, 3)
+        
+        if len(subject_ids) > 1:
+            overlap_matrix = np.zeros((len(subject_ids), len(subject_ids)))
+            
+            for i, subj1 in enumerate(subject_ids):
+                for j, subj2 in enumerate(subject_ids):
+                    if i != j:
+                        trials1 = set(subject_analysis[subj1]['trials_present'])
+                        trials2 = set(subject_analysis[subj2]['trials_present'])
+                        overlap = len(trials1.intersection(trials2))
+                        overlap_matrix[i, j] = overlap
+                    else:
+                        overlap_matrix[i, j] = subject_analysis[subj1]['num_trials']
+            
+            im = ax3.imshow(overlap_matrix, cmap='Blues')
+            ax3.set_xticks(range(len(subject_ids)))
+            ax3.set_yticks(range(len(subject_ids)))
+            ax3.set_xticklabels([f'S{sid}' for sid in subject_ids])
+            ax3.set_yticklabels([f'S{sid}' for sid in subject_ids])
+            ax3.set_title('Trial Overlap Between Subjects')
+            
+            # Add text annotations
+            for i in range(len(subject_ids)):
+                for j in range(len(subject_ids)):
+                    ax3.text(j, i, f'{int(overlap_matrix[i, j])}', 
+                            ha='center', va='center')
+            
+            plt.colorbar(im, ax=ax3)
+        else:
+            ax3.text(0.5, 0.5, 'Only one subject\nidentified', ha='center', va='center', 
+                    transform=ax3.transAxes, fontsize=12)
+            ax3.set_title('Trial Overlap Between Subjects')
+        
+        # Plot 4: Detection timeline (middle left)
+        ax4 = plt.subplot(3, 3, 4)
+        
+        for i, (subject_id, analysis) in enumerate(subject_analysis.items()):
+            timestamps = [face['timestamp'] for face in analysis['faces']]
+            
+            ax4.scatter(timestamps, [subject_id] * len(timestamps), 
+                    alpha=0.6, s=30, color=colors[i], label=f'Subject {subject_id}')
+        
+        ax4.set_xlabel('Timestamp (ms)')
+        ax4.set_ylabel('Subject ID')
+        ax4.set_title('Detection Timeline')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+        
+        # Plot 5: Trial range visualization (middle middle)
+        ax5 = plt.subplot(3, 3, 5)
+        
+        for i, (subject_id, analysis) in enumerate(subject_analysis.items()):
+            trials = analysis['trials_present']
+            if len(trials) > 0:
+                min_trial = min(trials)
+                max_trial = max(trials)
+                
+                # Draw range bar
+                ax5.barh(subject_id, max_trial - min_trial + 1, left=min_trial, 
+                        alpha=0.6, color=colors[i], height=0.6)
+                
+                # Add text annotation
+                ax5.text(min_trial + (max_trial - min_trial) / 2, subject_id, 
+                        f'{min_trial}-{max_trial}', ha='center', va='center', 
+                        fontweight='bold', fontsize=10)
+        
+        ax5.set_xlabel('Trial Number')
+        ax5.set_ylabel('Subject ID')
+        ax5.set_title('Trial Range for Each Subject')
+        ax5.grid(True, alpha=0.3)
+        
+        # Plots 6-9: Example face images for each subject
+        available_positions = [(3, 3, 6), (3, 3, 7), (3, 3, 8), (3, 3, 9)]
+        
+        for i, (subject_id, analysis) in enumerate(subject_analysis.items()):
+            if i >= len(available_positions):
+                break  # Only show first 4 subjects in this layout
+                
+            ax_pos = available_positions[i]
+            ax = plt.subplot(*ax_pos)
+            
+            # Get the best quality face image for this subject
+            best_face = None
+            best_size = 0
+            
+            for face_info in analysis['faces']:
+                picture_id = face_info['picture_id']
+                
+                if picture_id in picture_dict:
+                    image = picture_dict[picture_id]
+                    
+                    # Extract face region
+                    if face_info['method'] == 'face_recognition':
+                        top, right, bottom, left = face_info['face_location']
+                        face_crop = image[top:bottom, left:right]
+                    else:
+                        x, y, w, h = face_info['face_location']
+                        face_crop = image[y:y+h, x:x+w]
+                    
+                    # Check if this is the largest/best quality face so far
+                    face_size = face_crop.shape[0] * face_crop.shape[1]
+                    if face_size > best_size:
+                        best_size = face_size
+                        best_face = {
+                            'image': face_crop,
+                            'trial': face_info['trial_number'],
+                            'frame': face_info['frame_number']
+                        }
+            
+            if best_face is not None:
+                # Display the face image
+                face_rgb = cv2.cvtColor(best_face['image'], cv2.COLOR_BGR2RGB)
+                ax.imshow(face_rgb)
+                ax.set_title(f'Subject {subject_id}\nTrial {best_face["trial"]}, Frame {best_face["frame"]}', 
+                            fontsize=10, fontweight='bold')
+                ax.axis('off')
+                
+                # Add border with subject color
+                for spine in ax.spines.values():
+                    spine.set_edgecolor(colors[i])
+                    spine.set_linewidth(3)
+            else:
+                ax.text(0.5, 0.5, f'Subject {subject_id}\nNo image available', 
+                    ha='center', va='center', transform=ax.transAxes, fontsize=10)
+                ax.set_title(f'Subject {subject_id}', fontsize=10, fontweight='bold')
+                ax.axis('off')
+        
+        plt.suptitle('Subject Identification Analysis', fontsize=18, fontweight='bold', y=0.98)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        # Save main analysis plot
+        plot_path = os.path.join(output_dir, 'subject_identification_analysis.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        # Create a separate detailed subject gallery if there are many subjects
+        if n_subjects > 4:
+            self._create_subject_gallery(subject_analysis, picture_dict, colors, output_dir)
+        
+        print(f"Subject analysis plots saved to: {plot_path}")
+
+    def _create_subject_gallery(self, subject_analysis, picture_dict, colors, output_dir):
+        """Create a detailed gallery showing all subjects with their information"""
+        
+        n_subjects = len(subject_analysis)
+        
+        # Calculate grid layout
+        cols = min(4, n_subjects)
+        rows = (n_subjects + cols - 1) // cols
+        
+        fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 6*rows))
+        if rows == 1 and cols == 1:
+            axes = [axes]
+        elif rows == 1 or cols == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
+        
+        for i, (subject_id, analysis) in enumerate(subject_analysis.items()):
+            ax = axes[i]
+            
+            # Get the best quality face image for this subject
+            best_face = None
+            best_size = 0
+            
+            for face_info in analysis['faces']:
+                picture_id = face_info['picture_id']
+                
+                if picture_id in picture_dict:
+                    image = picture_dict[picture_id]
+                    
+                    # Extract face region
+                    if face_info['method'] == 'face_recognition':
+                        top, right, bottom, left = face_info['face_location']
+                        face_crop = image[top:bottom, left:right]
+                    else:
+                        x, y, w, h = face_info['face_location']
+                        face_crop = image[y:y+h, x:x+w]
+                    
+                    # Check if this is the largest/best quality face so far
+                    face_size = face_crop.shape[0] * face_crop.shape[1]
+                    if face_size > best_size:
+                        best_size = face_size
+                        best_face = {
+                            'image': face_crop,
+                            'trial': face_info['trial_number'],
+                            'frame': face_info['frame_number']
+                        }
+            
+            if best_face is not None:
+                # Display the face image
+                face_rgb = cv2.cvtColor(best_face['image'], cv2.COLOR_BGR2RGB)
+                ax.imshow(face_rgb)
+                
+                # Create detailed title with statistics
+                trials = analysis['trials_present']
+                trial_range = f"{min(trials)}-{max(trials)}" if len(trials) > 1 else str(trials[0])
+                
+                title = (f'Subject {subject_id}\n'
+                        f'Trials: {trial_range}\n'
+                        f'Present in {analysis["num_trials"]} trials\n'
+                        f'{analysis["total_face_detections"]} detections')
+                
+                ax.set_title(title, fontsize=10, fontweight='bold')
+                ax.axis('off')
+                
+                # Add colored border
+                for spine in ax.spines.values():
+                    spine.set_edgecolor(colors[i % len(colors)])
+                    spine.set_linewidth(3)
+            else:
+                trials = analysis['trials_present']
+                trial_range = f"{min(trials)}-{max(trials)}" if len(trials) > 1 else str(trials[0])
+                
+                ax.text(0.5, 0.5, 
+                    f'Subject {subject_id}\n'
+                    f'Trials: {trial_range}\n'
+                    f'Present in {analysis["num_trials"]} trials\n'
+                    f'{analysis["total_face_detections"]} detections\n\n'
+                    f'No image available', 
+                    ha='center', va='center', transform=ax.transAxes, 
+                    fontsize=10, bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
+                ax.set_title(f'Subject {subject_id}', fontsize=12, fontweight='bold')
+                ax.axis('off')
+        
+        # Hide unused subplots
+        for i in range(n_subjects, len(axes)):
+            axes[i].axis('off')
+        
+        plt.suptitle('Complete Subject Gallery', fontsize=16, fontweight='bold')
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        # Save gallery plot
+        gallery_path = os.path.join(output_dir, 'subject_gallery.png')
+        plt.savefig(gallery_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"Subject gallery saved to: {gallery_path}")
+
+    def _create_subject_summary_table(self, subject_analysis, output_dir):
+        """Create a summary table of all subjects and their trial participation"""
+        
+        # Create summary table figure
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.axis('tight')
+        ax.axis('off')
+        
+        # Prepare table data
+        table_data = []
+        headers = ['Subject ID', 'Trial Range', 'Trials Present', 'Total Detections', 
+                'First Detection (ms)', 'Last Detection (ms)', 'Participation Rate (%)']
+        
+        # Calculate total trials if trial_data is available
+        total_trials = len(self.trial_data) if hasattr(self, 'trial_data') and self.trial_data is not None else None
+        
+        for subject_id, analysis in sorted(subject_analysis.items()):
+            trials = analysis['trials_present']
+            trial_range = f"{min(trials)}-{max(trials)}" if len(trials) > 1 else str(trials[0])
+            
+            # Calculate participation rate
+            if total_trials:
+                participation_rate = (analysis['num_trials'] / total_trials) * 100
+                participation_str = f"{participation_rate:.1f}%"
+            else:
+                participation_str = "N/A"
+            
+            # Get time range
+            timestamps = [face['timestamp'] for face in analysis['faces']]
+            first_detection = min(timestamps)
+            last_detection = max(timestamps)
+            
+            table_data.append([
+                f"Subject {subject_id}",
+                trial_range,
+                str(analysis['num_trials']),
+                str(analysis['total_face_detections']),
+                str(first_detection),
+                str(last_detection),
+                participation_str
+            ])
+        
+        # Create table
+        table = ax.table(cellText=table_data,
+                        colLabels=headers,
+                        cellLoc='center',
+                        loc='center',
+                        bbox=[0, 0, 1, 1])
+        
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 2)
+        
+        # Style the table
+        for i in range(len(table_data) + 1):
+            for j in range(len(headers)):
+                cell = table[(i, j)]
+                if i == 0:  # Header
+                    cell.set_facecolor('#4CAF50')
+                    cell.set_text_props(weight='bold', color='white')
+                else:
+                    cell.set_facecolor('#f0f0f0' if i % 2 == 0 else 'white')
+        
+        plt.title('Subject Participation Summary Table', fontsize=14, fontweight='bold', pad=20)
+        
+        # Save table
+        table_path = os.path.join(output_dir, 'subject_summary_table.png')
+        plt.savefig(table_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"Subject summary table saved to: {table_path}")
+
+    def _extract_lbp_features(self, image, radius=1, n_points=8):
+        """Extract Local Binary Pattern features from face image"""
+        def local_binary_pattern(image, radius, n_points):
+            # Simple LBP implementation
+            h, w = image.shape
+            lbp = np.zeros_like(image)
+            
+            for i in range(radius, h - radius):
+                for j in range(radius, w - radius):
+                    center = image[i, j]
+                    binary_string = ''
+                    
+                    # Sample points around the center
+                    for k in range(n_points):
+                        angle = 2 * np.pi * k / n_points
+                        x = int(i + radius * np.cos(angle))
+                        y = int(j + radius * np.sin(angle))
+                        
+                        if 0 <= x < h and 0 <= y < w:
+                            binary_string += '1' if image[x, y] >= center else '0'
+                        else:
+                            binary_string += '0'
+                    
+                    lbp[i, j] = int(binary_string, 2)
+            
+            return lbp
+        
+        lbp_image = local_binary_pattern(image, radius, n_points)
+        
+        # Calculate histogram of LBP values
+        hist, _ = np.histogram(lbp_image.flatten(), bins=2**n_points, range=(0, 2**n_points))
+        
+        # Normalize histogram
+        hist = hist.astype(float)
+        hist /= (hist.sum() + 1e-7)
+        
+        return hist
+
+    def _create_subject_analysis_plots(self, subject_analysis, face_data, valid_pictures, output_dir):
+        """Create visualization plots for subject analysis"""
+        
+        # Plot 1: Subject presence across trials
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # Trial participation timeline
+        ax1 = axes[0, 0]
+        
+        for subject_id, analysis in subject_analysis.items():
+            trials = analysis['trials_present']
+            y_pos = [subject_id] * len(trials)
+            ax1.scatter(trials, y_pos, alpha=0.7, s=50, label=f'Subject {subject_id}')
+        
+        ax1.set_xlabel('Trial Number')
+        ax1.set_ylabel('Subject ID')
+        ax1.set_title('Subject Presence Across Trials')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Subject participation summary
+        ax2 = axes[0, 1]
+        
+        subject_ids = list(subject_analysis.keys())
+        trial_counts = [analysis['num_trials'] for analysis in subject_analysis.values()]
+        detection_counts = [analysis['total_face_detections'] for analysis in subject_analysis.values()]
+        
+        x = np.arange(len(subject_ids))
+        width = 0.35
+        
+        ax2.bar(x - width/2, trial_counts, width, label='Trials Present', alpha=0.7)
+        ax2.bar(x + width/2, detection_counts, width, label='Total Detections', alpha=0.7)
+        
+        ax2.set_xlabel('Subject ID')
+        ax2.set_ylabel('Count')
+        ax2.set_title('Subject Participation Summary')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels([f'Subject {sid}' for sid in subject_ids])
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        # Trial overlap heatmap
+        ax3 = axes[1, 0]
+        
+        if len(subject_ids) > 1:
+            overlap_matrix = np.zeros((len(subject_ids), len(subject_ids)))
+            
+            for i, subj1 in enumerate(subject_ids):
+                for j, subj2 in enumerate(subject_ids):
+                    if i != j:
+                        trials1 = set(subject_analysis[subj1]['trials_present'])
+                        trials2 = set(subject_analysis[subj2]['trials_present'])
+                        overlap = len(trials1.intersection(trials2))
+                        overlap_matrix[i, j] = overlap
+                    else:
+                        overlap_matrix[i, j] = subject_analysis[subj1]['num_trials']
+            
+            im = ax3.imshow(overlap_matrix, cmap='Blues')
+            ax3.set_xticks(range(len(subject_ids)))
+            ax3.set_yticks(range(len(subject_ids)))
+            ax3.set_xticklabels([f'S{sid}' for sid in subject_ids])
+            ax3.set_yticklabels([f'S{sid}' for sid in subject_ids])
+            ax3.set_title('Trial Overlap Between Subjects')
+            
+            # Add text annotations
+            for i in range(len(subject_ids)):
+                for j in range(len(subject_ids)):
+                    ax3.text(j, i, f'{int(overlap_matrix[i, j])}', 
+                            ha='center', va='center')
+            
+            plt.colorbar(im, ax=ax3)
+        
+        # Detection timeline
+        ax4 = axes[1, 1]
+        
+        for subject_id, analysis in subject_analysis.items():
+            timestamps = [face['timestamp'] for face in analysis['faces']]
+            trials = [face['trial_number'] for face in analysis['faces']]
+            
+            ax4.scatter(timestamps, [subject_id] * len(timestamps), 
+                    alpha=0.6, s=30, label=f'Subject {subject_id}')
+        
+        ax4.set_xlabel('Timestamp (ms)')
+        ax4.set_ylabel('Subject ID')
+        ax4.set_title('Detection Timeline')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Save plot
+        plot_path = os.path.join(output_dir, 'subject_identification_analysis.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"Subject analysis plots saved to: {plot_path}")
+        
+        # Save sample face images for each subject
+        self._save_sample_faces(subject_analysis, valid_pictures, output_dir)
+
+    def _save_sample_faces(self, subject_analysis, valid_pictures, output_dir):
+        """Save sample face images for each identified subject"""
+        
+        faces_dir = os.path.join(output_dir, 'sample_faces')
+        if not os.path.exists(faces_dir):
+            os.makedirs(faces_dir)
+        
+        # Create a mapping from picture_id to image
+        picture_dict = {pic_id: img for pic_id, trial, frame, img in valid_pictures}
+        
+        for subject_id, analysis in subject_analysis.items():
+            subject_dir = os.path.join(faces_dir, f'subject_{subject_id}')
+            if not os.path.exists(subject_dir):
+                os.makedirs(subject_dir)
+            
+            # Get a few sample faces for this subject
+            sample_faces = analysis['faces'][:5]  # First 5 detections
+            
+            for i, face_info in enumerate(sample_faces):
+                picture_id = face_info['picture_id']
+                
+                if picture_id in picture_dict:
+                    image = picture_dict[picture_id]
+                    
+                    # Extract face region
+                    if face_info['method'] == 'face_recognition':
+                        top, right, bottom, left = face_info['face_location']
+                        face_crop = image[top:bottom, left:right]
+                    else:
+                        x, y, w, h = face_info['face_location']
+                        face_crop = image[y:y+h, x:x+w]
+                    
+                    # Save face crop
+                    filename = f"face_{i+1}_trial_{face_info['trial_number']}_frame_{face_info['frame_number']}.jpg"
+                    filepath = os.path.join(subject_dir, filename)
+                    cv2.imwrite(filepath, face_crop)
+        
+        print(f"Sample face images saved to: {faces_dir}")
+
     def close_connection(self):
         """Close database connection"""
         if self.connection:
@@ -485,6 +1590,10 @@ def main():
         trial_data = analyzer.load_trial_data()
         picture_data = analyzer.load_picture_data()
         
+        if trial_data is not None:
+            print("\n=== GAMBLE VS SURE CHOICE ANALYSIS ===")
+            gamble_data = analyzer.analyze_gamble_vs_sure_choices()
+
         # Display basic info
         if trial_data is not None:
             print(f"\nTrial data shape: {trial_data.shape}")
@@ -497,6 +1606,10 @@ def main():
             if len(picture_data) > 0:
                 print(f"Pictures per trial: {picture_data.groupby('trial_number').size().describe()}")
         
+        if picture_data is not None and len(picture_data) > 0:
+            print("\n=== SUBJECT IDENTIFICATION FROM IMAGES ===")
+            subject_analysis, face_data = analyzer.identify_unique_subjects_from_images()
+
         # Generate summary
         print("\n=== TRIAL SUMMARY ===")
         summary = analyzer.get_trial_summary()
