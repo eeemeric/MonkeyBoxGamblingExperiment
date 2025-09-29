@@ -119,7 +119,7 @@ class CameraDetectionSystem:
     def _picture_capture_thread(self, db_connection, trial_number):
         """Capture pictures at 5 FPS during trial"""
         print("Picture capture thread started")
-        frame_interval = 1.0 / 5.0  # 5 FPS = 0.2 seconds between frames
+        frame_interval = 1.0 / 3.0  # 3 FPS = 0.333 seconds between frames
         frame_number = 0
         
         while self.capture_pictures and not self.stop_detection.is_set():
@@ -276,6 +276,13 @@ class experiment():
         self.ts_outcome_reveal = None
         self.ts_reward_delivered = None
         
+        # Circle settings
+        self.CIRCLE_RADIUS = 100
+        self.CIRCLE_AREA = math.pi*pow(self.CIRCLE_RADIUS,2)
+        
+        # options configuration
+        self.opt_sp_config = random.choice(['left', 'right'])
+
         # Colors
         self.BLACK = (0, 0, 0)
         # look up table for colors
@@ -302,26 +309,26 @@ class experiment():
                              (4,   1,0.1,	0,   0,  0)]
         
         self.two_opt_conditions =[(7,   0,  1,	1,   0,  1),
-                              (7,   0,  1,	2,   0,  1),
-                              (7,   0,  1,	3,   0,  1),
-                              (7,   0,  1,	4,   0,  1),
-                              (7,   0,  1,	5,   0,  1),
-                              (7,   0,  1,	6,   0,  1),
-                              (6,   0,  1,	1,   0,  1),
-                              (6,   0,  1,	2,   0,  1),
-                              (6,   0,  1,	3,   0,  1),
-                              (6,   0,  1,	4,   0,  1),
-                              (6,   0,  1,	5,   0,  1),
-                              (5,   0,  1,	1,   0,  1),
-                              (5,   0,  1,	2,   0,  1),
-                              (5,   0,  1,	3,   0,  1),
-                              (5,   0,  1,	4,   0,  1),
-                              (4,   0,  1,	1,   0,  1),
-                              (4,   0,  1,	2,   0,  1),
-                              (4,   0,  1,	3,   0,  1),
-                              (3,   0,  1,	1,   0,  1),
-                              (3,   0,  1,	2,   0,  1),
-                              (2,   0,  1,	1,   0,  1)]
+                                (7,   0,  1,	2,   0,  1),
+                                (7,   0,  1,	3,   0,  1),
+                                (7,   0,  1,	4,   0,  1),
+                                (7,   0,  1,	5,   0,  1),
+                                (7,   0,  1,	6,   0,  1),
+                                (6,   0,  1,	1,   0,  1),
+                                (6,   0,  1,	2,   0,  1),
+                                (6,   0,  1,	3,   0,  1),
+                                (6,   0,  1,	4,   0,  1),
+                                (6,   0,  1,	5,   0,  1),
+                                (5,   0,  1,	1,   0,  1),
+                                (5,   0,  1,	2,   0,  1),
+                                (5,   0,  1,	3,   0,  1),
+                                (5,   0,  1,	4,   0,  1),
+                                (4,   0,  1,	1,   0,  1),
+                                (4,   0,  1,	2,   0,  1),
+                                (4,   0,  1,	3,   0,  1),
+                                (3,   0,  1,	1,   0,  1),
+                                (3,   0,  1,	2,   0,  1),
+                                (2,   0,  1,	1,   0,  1)]
         
         self.gmbl_sure_conditions = [(7,	4,	0.5,	4,   0,  1),
                             (7,	4,	0.5,	5,   0,  1),
@@ -366,10 +373,12 @@ class experiment():
                                      (5,	1,	0.75,	7,	3,	0.25)]
         
         if self.DEBUG:
-            self.current_conditions =  self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions 
+            self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions 
+            # self.current_conditions = self.gmbl_sure_conditions
         else:
             # TODO: MAKE RANDOM
-            self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions
+            self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
+            # self.current_conditions = self.gmbl_sure_conditions
         
         self.total_trials = len(self.current_conditions)
         self.current_trials_counter = 0
@@ -384,10 +393,16 @@ class experiment():
         
         # Load sound
         try:
-            self.beep_sound500 = pygame.mixer.Sound("beep500.wav")
-            self.beep_sound1000 = pygame.mixer.Sound("beep1000.wav")
+            # Get the directory where the script is located
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            print(script_dir)
+            # Create database file with timestamp
+            sound_path = os.path.join(script_dir, 'beep500.wav')
+            self.beep_sound500 = pygame.mixer.Sound(sound_path)
+            sound_path = os.path.join(script_dir, 'beep1000.wav')
+            self.beep_sound1000 = pygame.mixer.Sound(sound_path)
         except:
-            print("Warning: beep.wav not found. Sound effects will be skipped.")
+            print("Warning: beep500.wav or beep1000.wav not found. Sound effects will be skipped.")
             self.beep_sound500 = None
             self.beep_sound1000 = None
             
@@ -395,12 +410,6 @@ class experiment():
         
         # Get the size of the primary desktop display
         desktop_width, desktop_height = pygame.display.get_desktop_sizes()[0]
-        if self.DEBUG:
-            self.current_conditions =  self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions 
-        else:
-            self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions
-        
-        self.total_trials = len(self.current_conditions)
         
         # look up table for colors
         self.COLORS =((127,0,0),    # dark red
@@ -438,6 +447,9 @@ class experiment():
         self.window_width = 800
         self.window_height = 600
 
+        self.LEFT_CIRCLE_POS = (self.window_width // 4, self.window_height // 2)
+        self.RIGHT_CIRCLE_POS = (3 * self.window_width // 4, self.window_height // 2)
+
         # Calculate the coordinates for the top-right quadrant
         # The x-coordinate is the desktop width minus the window width
         # The y-coordinate is 0 for the top edge of the screen
@@ -458,13 +470,6 @@ class experiment():
             # self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 
         pygame.display.set_caption("Experiment")
-
-        # Circle settings
-        self.CIRCLE_RADIUS = 100
-        self.LEFT_CIRCLE_POS = (self.window_width // 4, self.window_height // 2)
-        self.RIGHT_CIRCLE_POS = (3 * self.window_width // 4, self.window_height // 2)
-        # options configuration
-        self.opt_sp_config = random.choice(['left', 'right'])
         
         # SETUP sqlite_db
         self.db_connection = None
@@ -708,10 +713,12 @@ class experiment():
             print(f"Trial {self.current_trials_counter+1} in block: Reshuffling...")
             # shuffle trials and reset block counter
             if self.DEBUG:
-                self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions
+                self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
+                # self.current_conditions = self.gmbl_sure_conditions
                 self.current_trials_counter = 0
             else:
-                self.current_conditions = random.sample(self.one_opt_conditions) + random.sample(self.two_opt_conditions) + random.sample(self.gmbl_sure_conditions)
+                self.current_conditions = random.sample(self.one_opt_conditions) + random.sample(self.two_opt_conditions) + random.sample(self.gmbl_sure_conditions) + random.sample(self.gmbl_gmbl_conditions)
+                # self.current_conditions = self.gmbl_sure_conditions
                 self.current_trials_counter = 0
 
         # going through the list of conditions using the counter for the current trial block
@@ -749,74 +756,60 @@ class experiment():
         print(" ")
     
     def draw_stimuli(self):
+        self.left_color_Lose  = None
+        self.left_color_Win   = None
+        self.right_color_Lose = None
+        self.right_color_Win  = None
+
         print("Drawing Stimuli...")
-        # self.opt_sp_config = 'left'
+        self.opt_sp_config = random.choice(['left', 'right'])
+        # self.opt_sp_config = 'right'
+        
+        self.CIRCLE_AREA = math.pi*pow(self.CIRCLE_RADIUS,2)
+        area_win1 = self.CIRCLE_AREA*self.pWin1
+        radius_win1 = int(math.sqrt(float(area_win1)/math.pi))
+        area_win2 = self.CIRCLE_AREA*self.pWin2
+        radius_win2 = int(math.sqrt(float(area_win2)/math.pi))
 
         if self.opt_sp_config == 'left':
-            """ 
-            # draw option 1 on the left
+            # Option 1 COLORS on the left
             self.left_color_Lose  = self.COLORS[self.lose_Amount1-1]
             self.left_color_Win   = self.COLORS[self.win_Amount1-1]
-
-            # always draw lose option first but only if pWin1<1
-            if self.pWin1 < 1:
-                # draw full circle. color: lose amount 1
-                pygame.draw.circle(self.screen, self.left_color_Lose, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS)
-            # draw smaller circle. color: win amount 1
-            pygame.draw.circle(self.screen, self.left_color_Win, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS*self.pWin1)
+            # Option 2 COLORS on the right
+            self.right_color_Lose = self.COLORS[self.lose_Amount2-1]
+            self.right_color_Win  = self.COLORS[self.win_Amount2-1]
             
-                
-            # draw option 2 on the right
-            self.right_color_Lose  = self.COLORS[self.lose_Amount2-1]
-            self.right_color_Win   = self.COLORS[self.win_Amount2-1]
-
-            # always draw lose option first but only if pWin1<1
-            if self.pWin2 < 1: ...
-            """
-            self.left_color_Lose  = self.COLORS[self.lose_Amount1-1]
-            self.left_color_Win   = self.COLORS[self.win_Amount1-1]
-            
-            # draw option 1 on the left 
-            if self.pWin1 < 1 and self.pWin1 > 0:
-                # draw full circle. color: lose amount 1
+            # draw left option
+            if self.lose_Amount1 > 0: # Draw lose amount first if >0
                 pygame.draw.circle(self.screen, self.left_color_Lose, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS)
-            if self.pWin1 > 0:
-                # draw smaller circle. color: win amount 1
-                pygame.draw.circle(self.screen, self.left_color_Win, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS*self.pWin1)
-
+            if self.win_Amount1 > 0: # Draw win amount on top of lose amount if win_amount1 > 0
+                pygame.draw.circle(self.screen, self.left_color_Win, self.LEFT_CIRCLE_POS, radius_win1)
+            
             # draw option 2 on the right
-            self.right_color_Lose  = self.COLORS[self.lose_Amount2-1]
-            self.right_color_Win   = self.COLORS[self.win_Amount2-1]
-
-            if self.pWin2 < 1 and self.pWin2 > 0:
-                # draw full circle. color: lose amount 1
-                pygame.draw.circle(self.screen, self.right_color_Lose, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS)
-            if self.pWin2 > 0:
-                # draw smaller circle. color: win amount 1
-                pygame.draw.circle(self.screen, self.right_color_Win, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS*self.pWin2)
+            if self.lose_Amount2 > 0:
+                pygame.draw.circle(self.screen,self.right_color_Lose, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS)
+            if self.win_Amount2 > 0:
+                pygame.draw.circle(self.screen,self.right_color_Win, self.RIGHT_CIRCLE_POS, radius_win2)
 
         else:
-            self.right_color_Lose = self.COLORS[self.lose_Amount1-1]
-            self.right_color_Win = self.COLORS[self.win_Amount1-1]
-            # draw option 1 on the right
-            if self.pWin1 < 1 and self.pWin1 > 0:
-                # draw full circle. color: lose amount 1
-                pygame.draw.circle(self.screen, self.right_color_Lose, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS)
-            if self.pWin1 > 0:
-                # draw smaller circle. color: win amount 1q
-                pygame.draw.circle(self.screen, self.right_color_Win, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS*self.pWin1)
-        
-            # draw option 2 on the left
+            # Option 2 COLORS on the LEFT
             self.left_color_Lose = self.COLORS[self.lose_Amount2-1]
             self.left_color_Win = self.COLORS[self.win_Amount2-1]
-
-            if self.pWin2 < 1 and self.pWin2 > 0:
-                # draw full circle. color: lose amount 1
+            # Option 2 COLORS on the RIGHT
+            self.right_color_Lose = self.COLORS[self.lose_Amount1-1]
+            self.right_color_Win = self.COLORS[self.win_Amount1-1]
+            
+            # draw option 1 on the right
+            if self.lose_Amount1 > 0: # Draw lose amount first if >0
+                pygame.draw.circle(self.screen, self.right_color_Lose, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS)
+            if self.win_Amount1 > 0:
+                pygame.draw.circle(self.screen, self.right_color_Win, self.RIGHT_CIRCLE_POS, radius_win1)
+            
+            # draw option 2 on the left
+            if self.lose_Amount2 > 0:
                 pygame.draw.circle(self.screen, self.left_color_Lose, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS)
-
-            if self.pWin2 > 0:
-                # draw smaller circle. color: win amount 1
-                pygame.draw.circle(self.screen, self.left_color_Win, self.LEFT_CIRCLE_POS, self.CIRCLE_RADIUS*self.pWin2)
+            if self.win_Amount2 > 0:
+                pygame.draw.circle(self.screen, self.left_color_Win, self.LEFT_CIRCLE_POS, radius_win2)
         
     def wait_for_response(self):
         # remove events from the event queue
@@ -945,19 +938,29 @@ class experiment():
             else:
                 print('Sure option chosen')
     
+        if self.trial_type == 'choice gamble gamble':
+            self.success = True
+            if (self.opt_sp_config == self.choice):
+                # option 1 chosen
+                # gamble to win/lose
+                self.win = random.random() < self.pWin1 # roll the dice
+            if (self.opt_sp_config != self.choice):
+                # option 1 chosen
+                # gamble to win/lose
+                self.win = random.random() < self.pWin2 # roll the dice
+            if self.win:
+                print("Gambled, won")
+            else:
+                print("Gambled, lost")
+                
     def reveal_outcome(self):
         print("Reveal Outcome")
         # Check if display is still active
         if not pygame.get_init() or pygame.display.get_surface() is None:
             return
-        
+        self.screen.fill(self.BLACK)
+
         if self.choice == 'no response':
-            self.screen.fill(self.BLACK)
-            pygame.display.flip()
-            return
-   
-        if self.choice == 'no response':
-            self.screen.fill(self.BLACK)
             pygame.display.flip()
             return
     
@@ -982,7 +985,7 @@ class experiment():
                 pygame.draw.circle(self.screen, self.reward_color, self.RIGHT_CIRCLE_POS, self.CIRCLE_RADIUS)
             
         if self.trial_type == 'no choice gamble':
-            if self.opt_sp_config == self.choice: # chose
+            if self.opt_sp_config == self.choice: # chose option 1
                 if self.win == 1:
                     self.beep_count = self.win_Amount1 - 1
                     self.reward_magnitude = self.win_Amount1
@@ -1050,6 +1053,36 @@ class experiment():
                 else:
                     fbloc = self.LEFT_CIRCLE_POS  
             
+        if self.trial_type == 'choice gamble gamble':
+            if self.opt_sp_config == self.choice: # chose option 1 gamble
+                if self.win == 1:
+                    self.beep_count = self.win_Amount1 - 1
+                    self.reward_magnitude = self.win_Amount1
+                    self.reward_color = self.COLORS[self.win_Amount1-1]
+                else:
+                    self.beep_count = self.lose_Amount1 - 1
+                    self.reward_magnitude = self.lose_Amount1
+                    self.reward_color = self.COLORS[self.lose_Amount1-1]
+
+                if self.opt_sp_config == 'left':
+                    fbloc = self.LEFT_CIRCLE_POS
+                else:
+                    fbloc = self.RIGHT_CIRCLE_POS 
+            else:
+                if self.win == 1:
+                    self.beep_count = self.win_Amount2 - 1
+                    self.reward_magnitude = self.win_Amount2
+                    self.reward_color = self.COLORS[self.win_Amount2-1]
+                else:
+                    self.beep_count = self.lose_Amount2 - 1
+                    self.reward_magnitude = self.lose_Amount2
+                    self.reward_color = self.COLORS[self.lose_Amount2-1]
+
+                if self.opt_sp_config == 'right':
+                    fbloc = self.LEFT_CIRCLE_POS
+                else:
+                    fbloc = self.RIGHT_CIRCLE_POS    
+                
             pygame.draw.circle(self.screen, self.reward_color, fbloc, self.CIRCLE_RADIUS)
 
         pygame.display.flip()       
@@ -1061,12 +1094,13 @@ class experiment():
         print(f"Reward Magnitude, {self.reward_magnitude }")
         
         if not self.success and (self.trial_type == 'choice sure' or self.trial_type == 'no choice sure'):
-            # error tone
-            self.beep_sound500.play()
-            pygame.time.delay(500)       
+             if self.beep_sound500: # error tone
+                self.beep_sound500.play()
+                pygame.time.delay(500)       
 
         for beeps in range(self.reward_magnitude):
-            self.beep_sound1000.play()
+            if self.beep_sound1000: # reward tone
+                self.beep_sound1000.play()
             pygame.time.delay(500)
     
     def log_trial_data(self):
@@ -1199,13 +1233,6 @@ class experiment():
                     if event.key == pygame.K_q:
                         running = False
                         break
-            # use connected camera to 
-            #   first detect motion
-            #   then detect face
-            #       if face detected, run_trial
-            #           take still pictures during the trial at 5 frames per second and write to sqlite database
-            #       if face not detected go back to motion detection
-
             # Camera detection cycle: motion -> face -> trial
             if not self.SIMULATE:
                 if self.wait_for_motion_and_face():

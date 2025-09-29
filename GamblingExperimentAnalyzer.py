@@ -1496,6 +1496,408 @@ class GamblingExperimentAnalyzer:
         # Save sample face images for each subject
         self._save_sample_faces(subject_analysis, valid_pictures, output_dir)
 
+    def analyze_gamble_vs_gamble_choices(self, output_dir='plots'):
+        """
+        Analyze relative preferences when both options are gambles (pWin1 < 1 and pWin2 < 1)
+        """
+        if self.trial_data is None:
+            self.load_trial_data()
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Filter for trials where both options are gambles
+        gamble_gamble_trials = self.trial_data[
+            (self.trial_data['pWin1'] < 1.0) & 
+            (self.trial_data['pWin1'] > 0.0) &
+            (self.trial_data['pWin2'] < 1.0) & 
+            (self.trial_data['pWin2'] > 0.0)
+        ].copy()
+        
+        if len(gamble_gamble_trials) == 0:
+            print("No gamble vs gamble trials found in the data")
+            return
+        
+        print(f"Analyzing {len(gamble_gamble_trials)} gamble vs gamble trials")
+        
+        # Calculate expected values for both options
+        gamble_gamble_trials['ev1'] = (
+            gamble_gamble_trials['win_Amount1'] * gamble_gamble_trials['pWin1'] +
+            gamble_gamble_trials['lose_Amount1'] * (1 - gamble_gamble_trials['pWin1'])
+        )
+        
+        gamble_gamble_trials['ev2'] = (
+            gamble_gamble_trials['win_Amount2'] * gamble_gamble_trials['pWin2'] +
+            gamble_gamble_trials['lose_Amount2'] * (1 - gamble_gamble_trials['pWin2'])
+        )
+        
+        # Calculate EV difference (Option 1 EV - Option 2 EV)
+        gamble_gamble_trials['ev_difference'] = gamble_gamble_trials['ev1'] - gamble_gamble_trials['ev2']
+        
+        # Create gamble option identifiers
+        gamble_gamble_trials['option1_id'] = (
+            'Win:' + gamble_gamble_trials['win_Amount1'].astype(str) + 
+            '/Lose:' + gamble_gamble_trials['lose_Amount1'].astype(str) + 
+            '/P:' + gamble_gamble_trials['pWin1'].astype(str)
+        )
+        
+        gamble_gamble_trials['option2_id'] = (
+            'Win:' + gamble_gamble_trials['win_Amount2'].astype(str) + 
+            '/Lose:' + gamble_gamble_trials['lose_Amount2'].astype(str) + 
+            '/P:' + gamble_gamble_trials['pWin2'].astype(str)
+        )
+        
+        # Determine which option was chosen
+        # If options_spacial_config matches choice, option 1 was chosen
+        gamble_gamble_trials['chose_option1'] = (
+            gamble_gamble_trials['options_spacial_config'] == gamble_gamble_trials['choice']
+        )
+        
+        # Create comprehensive analysis figure
+        fig = plt.figure(figsize=(20, 16))
+        
+        # Plot 1: Choice probability vs EV difference
+        ax1 = plt.subplot(3, 3, 1)
+        
+        # Group by EV difference and calculate choice probability
+        ev_bins = np.linspace(gamble_gamble_trials['ev_difference'].min(), 
+                            gamble_gamble_trials['ev_difference'].max(), 10)
+        gamble_gamble_trials['ev_bin'] = pd.cut(gamble_gamble_trials['ev_difference'], ev_bins)
+        
+        prob_by_ev = gamble_gamble_trials.groupby('ev_bin').agg({
+            'chose_option1': ['mean', 'count']
+        }).round(3)
+        prob_by_ev.columns = ['prob_choose_option1', 'n_trials']
+        prob_by_ev = prob_by_ev.reset_index()
+        
+        # Get bin centers for plotting
+        prob_by_ev['ev_center'] = prob_by_ev['ev_bin'].apply(lambda x: x.mid)
+        
+        # Plot with error bars
+        ax1.scatter(prob_by_ev['ev_center'], prob_by_ev['prob_choose_option1'], 
+                s=prob_by_ev['n_trials']*10, alpha=0.7, c='blue')
+        
+        # Fit logistic regression
+        from scipy.optimize import curve_fit
+        
+        def logistic_function(x, b0, b1):
+            return 1 / (1 + np.exp(-(b0 + b1 * x)))
+        
+        try:
+            valid_data = prob_by_ev.dropna()
+            if len(valid_data) > 2:
+                popt, _ = curve_fit(logistic_function, 
+                                valid_data['ev_center'], 
+                                valid_data['prob_choose_option1'],
+                                p0=[0, 1], maxfev=5000)
+                
+                b0, b1 = popt
+                
+                # Plot fitted curve
+                x_smooth = np.linspace(prob_by_ev['ev_center'].min(), 
+                                    prob_by_ev['ev_center'].max(), 100)
+                y_smooth = logistic_function(x_smooth, b0, b1)
+                ax1.plot(x_smooth, y_smooth, 'r-', linewidth=2, alpha=0.8, 
+                        label=f'Logistic fit: b₀={b0:.3f}, b₁={b1:.3f}')
+                
+                # Calculate indifference point (where P = 0.5)
+                indifference_point = -b0 / b1 if b1 != 0 else 0
+                ax1.axvline(x=indifference_point, color='red', linestyle='--', alpha=0.5,
+                        label=f'Indifference: EV_diff={indifference_point:.3f}')
+        
+        except Exception as e:
+            print(f"Could not fit logistic curve: {e}")
+        
+        ax1.axvline(x=0, color='black', linestyle=':', alpha=0.5, label='Equal EV')
+        ax1.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='Random choice')
+        ax1.set_xlabel('EV Difference (Option 1 - Option 2)')
+        ax1.set_ylabel('Probability of Choosing Option 1')
+        ax1.set_title('Choice Preference vs Expected Value Difference')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        ax1.set_ylim(0, 1)
+        
+        # Plot 2: Risk preference analysis
+        ax2 = plt.subplot(3, 3, 2)
+        
+        # Calculate variance for each option
+        gamble_gamble_trials['var1'] = (
+            gamble_gamble_trials['pWin1'] * (gamble_gamble_trials['win_Amount1'] - gamble_gamble_trials['ev1'])**2 +
+            (1 - gamble_gamble_trials['pWin1']) * (gamble_gamble_trials['lose_Amount1'] - gamble_gamble_trials['ev1'])**2
+        )
+        
+        gamble_gamble_trials['var2'] = (
+            gamble_gamble_trials['pWin2'] * (gamble_gamble_trials['win_Amount2'] - gamble_gamble_trials['ev2'])**2 +
+            (1 - gamble_gamble_trials['pWin2']) * (gamble_gamble_trials['lose_Amount2'] - gamble_gamble_trials['ev2'])**2
+        )
+        
+        # Variance difference (Option 1 - Option 2)
+        gamble_gamble_trials['var_difference'] = gamble_gamble_trials['var1'] - gamble_gamble_trials['var2']
+        
+        # Group by variance difference
+        var_bins = np.linspace(gamble_gamble_trials['var_difference'].min(), 
+                            gamble_gamble_trials['var_difference'].max(), 8)
+        gamble_gamble_trials['var_bin'] = pd.cut(gamble_gamble_trials['var_difference'], var_bins)
+        
+        prob_by_var = gamble_gamble_trials.groupby('var_bin').agg({
+            'chose_option1': ['mean', 'count']
+        }).round(3)
+        prob_by_var.columns = ['prob_choose_option1', 'n_trials']
+        prob_by_var = prob_by_var.reset_index()
+        prob_by_var['var_center'] = prob_by_var['var_bin'].apply(lambda x: x.mid)
+        
+        ax2.scatter(prob_by_var['var_center'], prob_by_var['prob_choose_option1'], 
+                s=prob_by_var['n_trials']*10, alpha=0.7, c='green')
+        
+        ax2.axvline(x=0, color='black', linestyle=':', alpha=0.5, label='Equal variance')
+        ax2.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='Random choice')
+        ax2.set_xlabel('Variance Difference (Option 1 - Option 2)')
+        ax2.set_ylabel('Probability of Choosing Option 1')
+        ax2.set_title('Risk Preference: Choice vs Variance Difference')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        ax2.set_ylim(0, 1)
+        
+        # Plot 3: Probability preference analysis
+        ax3 = plt.subplot(3, 3, 3)
+        
+        # Probability difference
+        gamble_gamble_trials['prob_difference'] = gamble_gamble_trials['pWin1'] - gamble_gamble_trials['pWin2']
+        
+        prob_bins = np.linspace(gamble_gamble_trials['prob_difference'].min(), 
+                            gamble_gamble_trials['prob_difference'].max(), 8)
+        gamble_gamble_trials['prob_bin'] = pd.cut(gamble_gamble_trials['prob_difference'], prob_bins)
+        
+        prob_by_prob = gamble_gamble_trials.groupby('prob_bin').agg({
+            'chose_option1': ['mean', 'count']
+        }).round(3)
+        prob_by_prob.columns = ['prob_choose_option1', 'n_trials']
+        prob_by_prob = prob_by_prob.reset_index()
+        prob_by_prob['prob_center'] = prob_by_prob['prob_bin'].apply(lambda x: x.mid)
+        
+        ax3.scatter(prob_by_prob['prob_center'], prob_by_prob['prob_choose_option1'], 
+                s=prob_by_prob['n_trials']*10, alpha=0.7, c='orange')
+        
+        ax3.axvline(x=0, color='black', linestyle=':', alpha=0.5, label='Equal probability')
+        ax3.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='Random choice')
+        ax3.set_xlabel('Probability Difference (pWin1 - pWin2)')
+        ax3.set_ylabel('Probability of Choosing Option 1')
+        ax3.set_title('Probability Preference Analysis')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        ax3.set_ylim(0, 1)
+        
+        # Plot 4: Choice consistency over trials
+        ax4 = plt.subplot(3, 3, 4)
+        
+        # Rolling average of choosing higher EV option
+        gamble_gamble_trials_sorted = gamble_gamble_trials.sort_values('trial_number')
+        gamble_gamble_trials_sorted['chose_higher_ev'] = (
+            (gamble_gamble_trials_sorted['ev_difference'] > 0) & 
+            (gamble_gamble_trials_sorted['chose_option1']) |
+            (gamble_gamble_trials_sorted['ev_difference'] < 0) & 
+            (~gamble_gamble_trials_sorted['chose_option1'])
+        )
+        
+        window_size = min(20, len(gamble_gamble_trials_sorted) // 5)
+        if window_size > 0:
+            rolling_optimal = gamble_gamble_trials_sorted['chose_higher_ev'].rolling(
+                window=window_size, min_periods=1).mean()
+            
+            ax4.plot(range(len(rolling_optimal)), rolling_optimal, 'b-', linewidth=2, alpha=0.7)
+            ax4.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='Random choice')
+            ax4.set_xlabel('Trial Sequence')
+            ax4.set_ylabel('Proportion Choosing Higher EV')
+            ax4.set_title('Optimal Choice Consistency Over Time')
+            ax4.legend()
+            ax4.grid(True, alpha=0.3)
+            ax4.set_ylim(0, 1)
+        
+        # Plot 5: EV vs Variance scatter
+        ax5 = plt.subplot(3, 3, 5)
+        
+        # Create scatter plot showing all option pairs
+        option1_points = ax5.scatter(gamble_gamble_trials['ev1'], gamble_gamble_trials['var1'], 
+                                    alpha=0.6, c='blue', s=30, label='Option 1')
+        option2_points = ax5.scatter(gamble_gamble_trials['ev2'], gamble_gamble_trials['var2'], 
+                                    alpha=0.6, c='red', s=30, label='Option 2')
+        
+        ax5.set_xlabel('Expected Value')
+        ax5.set_ylabel('Variance')
+        ax5.set_title('Risk-Return Profile of All Options')
+        ax5.legend()
+        ax5.grid(True, alpha=0.3)
+        
+        # Plot 6: Unique gamble pair analysis
+        ax6 = plt.subplot(3, 3, 6)
+        
+        # Create gamble pair identifier
+        gamble_gamble_trials['pair_id'] = (
+            gamble_gamble_trials['option1_id'] + ' vs ' + gamble_gamble_trials['option2_id']
+        )
+        
+        # Get most common pairs
+        pair_counts = gamble_gamble_trials['pair_id'].value_counts().head(10)
+        
+        if len(pair_counts) > 0:
+            pair_prefs = []
+            pair_labels = []
+            
+            for pair_id in pair_counts.index[:5]:  # Top 5 pairs
+                pair_data = gamble_gamble_trials[gamble_gamble_trials['pair_id'] == pair_id]
+                pref = pair_data['chose_option1'].mean()
+                pair_prefs.append(pref)
+                pair_labels.append(f"Pair {len(pair_labels)+1}")
+            
+            bars = ax6.bar(range(len(pair_prefs)), pair_prefs, alpha=0.7, 
+                        color=['blue' if p > 0.5 else 'red' for p in pair_prefs])
+            
+            ax6.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='Random choice')
+            ax6.set_xlabel('Gamble Pair')
+            ax6.set_ylabel('Probability of Choosing Option 1')
+            ax6.set_title('Preferences for Most Common Gamble Pairs')
+            ax6.set_xticks(range(len(pair_labels)))
+            ax6.set_xticklabels(pair_labels, rotation=45)
+            ax6.legend()
+            ax6.grid(True, alpha=0.3)
+            ax6.set_ylim(0, 1)
+        
+        # Plot 7: Summary statistics table
+        ax7 = plt.subplot(3, 3, 7)
+        ax7.axis('off')
+        
+        # Calculate summary statistics
+        overall_stats = {
+            'Total Trials': len(gamble_gamble_trials),
+            'Chose Higher EV': f"{(gamble_gamble_trials['chose_higher_ev'].mean()*100):.1f}%",
+            'Mean EV Diff': f"{gamble_gamble_trials['ev_difference'].mean():.3f}",
+            'EV Sensitivity': f"{b1:.3f}" if 'b1' in locals() else "N/A",
+            'Indifference Point': f"{indifference_point:.3f}" if 'indifference_point' in locals() else "N/A"
+        }
+        
+        table_data = [[key, value] for key, value in overall_stats.items()]
+        
+        table = ax7.table(cellText=table_data,
+                        colLabels=['Metric', 'Value'],
+                        cellLoc='left',
+                        loc='center',
+                        bbox=[0, 0, 1, 1])
+        table.auto_set_font_size(False)
+        table.set_fontsize(11)
+        table.scale(1, 2)
+        
+        # Style the table
+        for i in range(len(table_data) + 1):
+            for j in range(2):
+                cell = table[(i, j)]
+                if i == 0:  # Header
+                    cell.set_facecolor('#4CAF50')
+                    cell.set_text_props(weight='bold', color='white')
+                else:
+                    cell.set_facecolor('#f0f0f0' if i % 2 == 0 else 'white')
+        
+        ax7.set_title('Summary Statistics', fontsize=12, pad=20)
+        
+        # Plot 8: Reaction time analysis
+        ax8 = plt.subplot(3, 3, 8)
+        
+        if 'ts_button_press' in gamble_gamble_trials.columns and 'ts_stimuli_on' in gamble_gamble_trials.columns:
+            reaction_times = (gamble_gamble_trials['ts_button_press'] - 
+                            gamble_gamble_trials['ts_stimuli_on'])
+            reaction_times = reaction_times[(reaction_times > 0) & (reaction_times < 10000)]
+            
+            if len(reaction_times) > 0:
+                # Compare reaction times for different choice types
+                rt_optimal = reaction_times[gamble_gamble_trials['chose_higher_ev']]
+                rt_suboptimal = reaction_times[~gamble_gamble_trials['chose_higher_ev']]
+                
+                ax8.hist(rt_optimal, bins=20, alpha=0.6, label='Chose Higher EV', color='blue')
+                ax8.hist(rt_suboptimal, bins=20, alpha=0.6, label='Chose Lower EV', color='red')
+                
+                ax8.set_xlabel('Reaction Time (ms)')
+                ax8.set_ylabel('Frequency')
+                ax8.set_title('Reaction Times by Choice Quality')
+                ax8.legend()
+                ax8.grid(True, alpha=0.3)
+        
+        # Plot 9: Learning curve
+        ax9 = plt.subplot(3, 3, 9)
+        
+        if len(gamble_gamble_trials_sorted) > 10:
+            # Divide trials into blocks
+            n_blocks = 5
+            block_size = len(gamble_gamble_trials_sorted) // n_blocks
+            
+            block_performance = []
+            block_labels = []
+            
+            for i in range(n_blocks):
+                start_idx = i * block_size
+                end_idx = (i + 1) * block_size if i < n_blocks - 1 else len(gamble_gamble_trials_sorted)
+                
+                block_data = gamble_gamble_trials_sorted.iloc[start_idx:end_idx]
+                performance = block_data['chose_higher_ev'].mean()
+                
+                block_performance.append(performance)
+                block_labels.append(f'Block {i+1}')
+            
+            ax9.plot(range(len(block_performance)), block_performance, 'o-', linewidth=2, markersize=8)
+            ax9.axhline(y=0.5, color='black', linestyle=':', alpha=0.5, label='Random choice')
+            ax9.set_xlabel('Trial Block')
+            ax9.set_ylabel('Proportion Optimal Choices')
+            ax9.set_title('Learning Curve Across Session')
+            ax9.set_xticks(range(len(block_labels)))
+            ax9.set_xticklabels(block_labels)
+            ax9.legend()
+            ax9.grid(True, alpha=0.3)
+            ax9.set_ylim(0, 1)
+        
+        plt.suptitle('Gamble vs Gamble Choice Analysis', fontsize=18, fontweight='bold', y=0.98)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        # Save plot
+        plot_path = os.path.join(output_dir, 'gamble_vs_gamble_analysis.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"\nGamble vs Gamble analysis plot saved to: {plot_path}")
+        
+        # Print detailed analysis
+        print("\n" + "="*80)
+        print("GAMBLE VS GAMBLE CHOICE ANALYSIS")
+        print("="*80)
+        
+        print(f"Total gamble vs gamble trials: {len(gamble_gamble_trials)}")
+        print(f"Proportion choosing higher EV option: {gamble_gamble_trials['chose_higher_ev'].mean():.3f}")
+        
+        if 'b1' in locals():
+            print(f"EV sensitivity (logistic slope): {b1:.3f}")
+            if b1 > 0:
+                print("  → Positive EV sensitivity (prefers higher expected value)")
+            else:
+                print("  → Negative EV sensitivity (unusual - may prefer lower expected value)")
+        
+        if 'indifference_point' in locals():
+            print(f"Indifference point: {indifference_point:.3f}")
+            if abs(indifference_point) < 0.1:
+                print("  → Nearly unbiased choice behavior")
+            elif indifference_point > 0:
+                print("  → Slight bias toward Option 2")
+            else:
+                print("  → Slight bias toward Option 1")
+        
+        # Risk preference analysis
+        var_sensitivity = gamble_gamble_trials[['var_difference', 'chose_option1']].corr().iloc[0,1]
+        print(f"Variance sensitivity correlation: {var_sensitivity:.3f}")
+        if var_sensitivity > 0.1:
+            print("  → Risk-seeking behavior (prefers higher variance)")
+        elif var_sensitivity < -0.1:
+            print("  → Risk-averse behavior (avoids higher variance)")
+        else:
+            print("  → Risk-neutral behavior")
+        
+        return gamble_gamble_trials
+
     def _save_sample_faces(self, subject_analysis, valid_pictures, output_dir):
         """Save sample face images for each identified subject"""
         
@@ -1593,6 +1995,10 @@ def main():
         if trial_data is not None:
             print("\n=== GAMBLE VS SURE CHOICE ANALYSIS ===")
             gamble_data = analyzer.analyze_gamble_vs_sure_choices()
+
+        if trial_data is not None:
+            print("\n=== GAMBLE VS GAMBLE CHOICE ANALYSIS ===")
+            gamble_gamble_data = analyzer.analyze_gamble_vs_gamble_choices()
 
         # Display basic info
         if trial_data is not None:
