@@ -1996,9 +1996,9 @@ def main():
             print("\n=== GAMBLE VS SURE CHOICE ANALYSIS ===")
             gamble_data = analyzer.analyze_gamble_vs_sure_choices()
 
-        if trial_data is not None:
-            print("\n=== GAMBLE VS GAMBLE CHOICE ANALYSIS ===")
-            gamble_gamble_data = analyzer.analyze_gamble_vs_gamble_choices()
+##        if trial_data is not None:
+##            print("\n=== GAMBLE VS GAMBLE CHOICE ANALYSIS ===")
+##            gamble_gamble_data = analyzer.analyze_gamble_vs_gamble_choices()
 
         # Display basic info
         if trial_data is not None:

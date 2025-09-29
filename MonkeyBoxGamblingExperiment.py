@@ -20,6 +20,8 @@ import math
 import traceback
 import queue
 
+
+
 class CameraDetectionSystem:
     def __init__(self):
         print('Camera setup...')
@@ -374,11 +376,11 @@ class experiment():
         
         if self.DEBUG:
             self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions 
-            # self.current_conditions = self.gmbl_sure_conditions
+            # self.current_conditions = self.gmbl_gmbl_conditions
         else:
             # TODO: MAKE RANDOM
             self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
-            # self.current_conditions = self.gmbl_sure_conditions
+            # self.current_conditions = self.gmbl_gmbl_conditions
         
         self.total_trials = len(self.current_conditions)
         self.current_trials_counter = 0
@@ -705,7 +707,7 @@ class experiment():
         self.ts_outcome_reveal = None
         self.ts_reward_delivered = None
         self.ts_end_of_trial = None
-        
+
         # correct trial flag
         self.success = False
         
@@ -714,11 +716,11 @@ class experiment():
             # shuffle trials and reset block counter
             if self.DEBUG:
                 self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
-                # self.current_conditions = self.gmbl_sure_conditions
+                # self.current_conditions = self.gmbl_gmbl_conditions
                 self.current_trials_counter = 0
             else:
                 self.current_conditions = random.sample(self.one_opt_conditions) + random.sample(self.two_opt_conditions) + random.sample(self.gmbl_sure_conditions) + random.sample(self.gmbl_gmbl_conditions)
-                # self.current_conditions = self.gmbl_sure_conditions
+                # self.current_conditions = self.gmbl_gmbl_conditions
                 self.current_trials_counter = 0
 
         # going through the list of conditions using the counter for the current trial block
@@ -762,7 +764,6 @@ class experiment():
         self.right_color_Win  = None
 
         print("Drawing Stimuli...")
-        self.opt_sp_config = random.choice(['left', 'right'])
         # self.opt_sp_config = 'right'
         
         self.CIRCLE_AREA = math.pi*pow(self.CIRCLE_RADIUS,2)
@@ -1174,14 +1175,20 @@ class experiment():
             self.total_trial_counter + 1
         )
 
+        self.setup_new_trial()
+
         # Arduino LED control: ON
         if self.arduino_buttons_connected:
             try:
-                self.arduino_buttons.write("3\n".encode('utf-8'))
+                if self.trial_type == 'no choice sure' and self.opt_sp_config == 'left':
+                    self.arduino_buttons.write("1\n".encode('utf-8'))
+                if self.trial_type == 'no choice sure' and self.opt_sp_config == 'right':
+                    self.arduino_buttons.write("2\n".encode('utf-8'))
+                if self.trial_type != 'no choice sure':
+                    self.arduino_buttons.write("3\n".encode('utf-8'))
             except Exception as e:
                 print(f"Arduino write error: {e}")
 
-        self.setup_new_trial()
         self.draw_stimuli()
         pygame.display.flip()
         self.ts_stimuli_on = pygame.time.get_ticks()
@@ -1223,6 +1230,8 @@ class experiment():
         clock = pygame.time.Clock() 
 
         while running: 
+            # randomize spatial config
+            self.opt_sp_config = random.choice(['left', 'right'])
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False

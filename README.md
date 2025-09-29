@@ -63,6 +63,10 @@ db_path = analyzer.db_path
 analyzer.close_connection()
 
 ## CHANGES
+### 2025/09/29
+- on single option trials, only the corresponding LED is ON. both LEDs are on for all the two option trials
+- created Win_RasPi branch to run on the raspberry pi 
+ 
 ### 2025/09/28
 - fixed error where the sound files were not found.
 - changed FPS of still pictures from 5 to 3
