@@ -20,6 +20,529 @@ import math
 import traceback
 import queue
 
+import cv2
+import threading
+import queue
+import time
+import numpy as np
+import platform
+import os
+
+class CrossPlatformCameraDetectionSystem:
+    def __init__(self):
+        self.platform = platform.system().lower()
+        self.is_raspberry_pi = self._detect_raspberry_pi()
+        
+        # Camera setup
+        self.cap = None
+        self.camera_initialized = False
+        self.setup_camera()
+        
+        # Face detection
+        self.face_cascade = self._load_face_cascade()
+        
+        # Motion detection
+        self.background_subtractor = None
+        self.motion_threshold = 5000
+        self.frames_to_stabilize = 30
+        
+        # Detection flags
+        self.motion_detected_flag = False
+        self.face_detected_flag = False
+        
+        # Threading controls
+        self.detection_active = False
+        self.detection_thread = None
+        self.stop_detection = threading.Event()
+        
+        # Picture capture during trials
+        self.capture_pictures = False
+        self.picture_thread = None
+        self.picture_queue = queue.Queue()
+        self.trial_number = 0
+        
+    def _detect_raspberry_pi(self):
+        """Detect if running on Raspberry Pi"""
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read()
+            return 'BCM' in cpuinfo or 'Raspberry Pi' in cpuinfo
+        except:
+            return False
+    
+    def _load_face_cascade(self):
+        """Load face cascade with fallback options"""
+        cascade_files = [
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml',
+            '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
+            '/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_default.xml'
+        ]
+        
+        for cascade_file in cascade_files:
+            if os.path.exists(cascade_file):
+                try:
+                    cascade = cv2.CascadeClassifier(cascade_file)
+                    if not cascade.empty():
+                        print(f"Loaded face cascade from: {cascade_file}")
+                        return cascade
+                except Exception as e:
+                    print(f"Failed to load cascade from {cascade_file}: {e}")
+        
+        print("Warning: Could not load face cascade classifier")
+        return None
+    
+    def setup_camera(self):
+        """Setup camera based on platform"""
+        print(f"Setting up camera for {self.platform}")
+        print(f"Raspberry Pi detected: {self.is_raspberry_pi}")
+        
+        if self.is_raspberry_pi:
+            self._setup_raspberry_pi_camera()
+        else:
+            self._setup_windows_camera()
+    
+    def _setup_raspberry_pi_camera(self):
+        """Setup camera for Raspberry Pi with ArduCam IMX708"""
+        try:
+            # Try libcamera first (preferred for newer Raspberry Pi OS)
+            print("Attempting to initialize ArduCam IMX708 with libcamera...")
+            
+            # For ArduCam IMX708, try different backends
+            backends_to_try = [
+                cv2.CAP_V4L2,      # Video4Linux2 (most common on Linux)
+                cv2.CAP_GSTREAMER, # GStreamer
+                cv2.CAP_ANY        # Let OpenCV decide
+            ]
+            
+            camera_indices = [0, 1, 2]  # Try different camera indices
+            
+            for backend in backends_to_try:
+                for cam_idx in camera_indices:
+                    try:
+                        print(f"Trying camera index {cam_idx} with backend {backend}")
+                        self.cap = cv2.VideoCapture(cam_idx, backend)
+                        
+                        if self.cap.isOpened():
+                            # Test if we can read a frame
+                            ret, frame = self.cap.read()
+                            if ret and frame is not None:
+                                print(f"Successfully initialized camera {cam_idx} with backend {backend}")
+                                self._configure_raspberry_pi_camera()
+                                self.camera_initialized = True
+                                return
+                            else:
+                                self.cap.release()
+                        
+                    except Exception as e:
+                        print(f"Failed camera {cam_idx} with backend {backend}: {e}")
+                        if self.cap:
+                            self.cap.release()
+            
+            # If all else fails, try system commands for libcamera
+            print("Trying alternative libcamera approach...")
+            self._try_libcamera_approach()
+            
+        except Exception as e:
+            print(f"Error setting up Raspberry Pi camera: {e}")
+            self.camera_initialized = False
+    
+    def _configure_raspberry_pi_camera(self):
+        """Configure ArduCam IMX708 settings"""
+        if not self.cap or not self.cap.isOpened():
+            return
+            
+        try:
+            # ArduCam IMX708 optimal settings
+            # Set resolution (IMX708 supports up to 4608x2592, but we'll use smaller for performance)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            
+            # Set FPS
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            
+            # Set format (try different formats)
+            formats_to_try = [
+                cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
+                cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y', 'U', 'Y', 'V'),
+            ]
+            
+            for i in range(0, len(formats_to_try), 2):
+                try:
+                    self.cap.set(formats_to_try[i], formats_to_try[i+1])
+                    break
+                except:
+                    continue
+            
+            # Additional IMX708 specific settings
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer for real-time
+            
+            # Verify settings
+            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+            
+            print(f"Camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS")
+            
+        except Exception as e:
+            print(f"Error configuring Raspberry Pi camera: {e}")
+    
+    def _try_libcamera_approach(self):
+        """Try using libcamera through GStreamer pipeline"""
+        try:
+            # GStreamer pipeline for libcamera
+            gst_pipeline = (
+                "libcamerasrc ! "
+                "video/x-raw,width=1280,height=720,framerate=30/1 ! "
+                "videoconvert ! "
+                "appsink drop=1"
+            )
+            
+            print("Trying GStreamer libcamera pipeline...")
+            self.cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+            
+            if self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    print("Successfully initialized camera with libcamera GStreamer pipeline")
+                    self.camera_initialized = True
+                    return
+            
+        except Exception as e:
+            print(f"GStreamer libcamera approach failed: {e}")
+        
+        # Final fallback - try basic camera access
+        try:
+            print("Trying basic camera access...")
+            self.cap = cv2.VideoCapture(0)
+            if self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    print("Basic camera access successful")
+                    self.camera_initialized = True
+                    return
+        except Exception as e:
+            print(f"Basic camera access failed: {e}")
+        
+        print("ERROR: Could not initialize any camera on Raspberry Pi")
+        self.camera_initialized = False
+    
+    def _setup_windows_camera(self):
+        """Setup camera for Windows"""
+        try:
+            # Try DirectShow first (Windows default)
+            backends_to_try = [
+                cv2.CAP_DSHOW,     # DirectShow (Windows)
+                cv2.CAP_MSMF,      # Microsoft Media Foundation
+                cv2.CAP_ANY        # Let OpenCV decide
+            ]
+            
+            for backend in backends_to_try:
+                for cam_idx in range(3):  # Try camera indices 0, 1, 2
+                    try:
+                        print(f"Trying Windows camera {cam_idx} with backend {backend}")
+                        self.cap = cv2.VideoCapture(cam_idx, backend)
+                        
+                        if self.cap.isOpened():
+                            # Test if we can read a frame
+                            ret, frame = self.cap.read()
+                            if ret and frame is not None:
+                                print(f"Successfully initialized Windows camera {cam_idx}")
+                                self._configure_windows_camera()
+                                self.camera_initialized = True
+                                return
+                            else:
+                                self.cap.release()
+                    
+                    except Exception as e:
+                        print(f"Failed Windows camera {cam_idx}: {e}")
+                        if self.cap:
+                            self.cap.release()
+            
+            print("ERROR: Could not initialize any camera on Windows")
+            self.camera_initialized = False
+            
+        except Exception as e:
+            print(f"Error setting up Windows camera: {e}")
+            self.camera_initialized = False
+    
+    def _configure_windows_camera(self):
+        """Configure Windows camera settings"""
+        if not self.cap or not self.cap.isOpened():
+            return
+            
+        try:
+            # Standard settings for Windows cameras
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
+            # Verify settings
+            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+            
+            print(f"Windows camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS")
+            
+        except Exception as e:
+            print(f"Error configuring Windows camera: {e}")
+    
+    def reset_for_new_detection_cycle(self):
+        """Reset detection system for new motion->face cycle"""
+        print("Resetting detection system...")
+        
+        if not self.camera_initialized:
+            print("Camera not initialized, attempting to reinitialize...")
+            self.setup_camera()
+            if not self.camera_initialized:
+                print("ERROR: Cannot reset detection - camera not available")
+                return False
+        
+        # Stop any existing detection
+        self.stop_all_detection()
+        
+        # Reset flags
+        self.motion_detected_flag = False
+        self.face_detected_flag = False
+        
+        # Create fresh background subtractor
+        self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
+            detectShadows=False,
+            varThreshold=50,
+            history=500
+        )
+        
+        # Stabilize background model
+        print("Stabilizing background model...")
+        stabilization_count = 0
+        for i in range(self.frames_to_stabilize):
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                self.background_subtractor.apply(frame)
+                stabilization_count += 1
+            else:
+                print(f"Warning: Failed to read frame {i} during stabilization")
+        
+        print(f"Detection system reset complete ({stabilization_count}/{self.frames_to_stabilize} frames)")
+        return True
+    
+    def _detection_thread(self):
+        """Main detection thread: motion -> face detection"""
+        print("Detection thread started")
+        
+        frame_count = 0
+        last_frame_time = time.time()
+        
+        while not self.stop_detection.is_set() and self.detection_active:
+            ret, frame = self.cap.read()
+            if not ret or frame is None:
+                print("Warning: Failed to read camera frame")
+                time.sleep(0.1)
+                continue
+            
+            frame_count += 1
+            current_time = time.time()
+            
+            # Print FPS every 30 frames
+            if frame_count % 30 == 0:
+                fps = 30 / (current_time - last_frame_time)
+                print(f"Camera FPS: {fps:.1f}")
+                last_frame_time = current_time
+            
+            # Phase 1: Motion Detection
+            if not self.motion_detected_flag:
+                fg_mask = self.background_subtractor.apply(frame)
+                motion_area = cv2.countNonZero(fg_mask)
+                
+                if motion_area > self.motion_threshold:
+                    print(f"Motion detected! Area: {motion_area}")
+                    self.motion_detected_flag = True
+                    
+            # Phase 2: Face Detection (only after motion detected)
+            elif not self.face_detected_flag and self.face_cascade is not None:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = self.face_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(50, 50)
+                )
+                
+                if len(faces) > 0:
+                    print(f"Face detected! {len(faces)} face(s) found")
+                    self.face_detected_flag = True
+                    break  # Exit detection loop to run trial
+            
+            time.sleep(0.03)  # ~30 FPS
+        
+        print("Detection thread ended")
+    
+    def _picture_capture_thread(self, db_connection, trial_number):
+        """Capture pictures at 5 FPS during trial"""
+        print("Picture capture thread started")
+        frame_interval = 1.0 / 5.0  # 5 FPS = 0.2 seconds between frames
+        frame_number = 0
+        
+        while self.capture_pictures and not self.stop_detection.is_set():
+            start_time = time.time()
+            
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                # Convert frame to JPEG for database storage
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                _, buffer = cv2.imencode('.jpg', frame, encode_param)
+                image_data = buffer.tobytes()
+                
+                # Store in queue for database insertion
+                picture_data = {
+                    'trial_number': trial_number,
+                    'timestamp': int(time.time() * 1000),  # Use system time if pygame not available
+                    'frame_number': frame_number,
+                    'image_data': image_data,
+                    'image_width': frame.shape[1],
+                    'image_height': frame.shape[0]
+                }
+                
+                self.picture_queue.put(picture_data)
+                frame_number += 1
+                
+                print(f"Captured frame {frame_number} for trial {trial_number}")
+            else:
+                print("Warning: Failed to capture frame for trial picture")
+            
+            # Maintain 5 FPS timing
+            elapsed = time.time() - start_time
+            sleep_time = max(0, frame_interval - elapsed)
+            time.sleep(sleep_time)
+        
+        print("Picture capture thread ended")
+    
+    def start_detection_cycle(self):
+        """Start motion->face detection cycle"""
+        if not self.camera_initialized:
+            print("ERROR: Cannot start detection - camera not initialized")
+            return False
+            
+        if self.detection_thread and self.detection_thread.is_alive():
+            return False
+            
+        self.detection_active = True
+        self.stop_detection.clear()
+        
+        self.detection_thread = threading.Thread(target=self._detection_thread)
+        self.detection_thread.daemon = True
+        self.detection_thread.start()
+        
+        return True
+    
+    def start_picture_capture(self, db_connection, trial_number):
+        """Start capturing pictures at 5 FPS during trial"""
+        if not self.camera_initialized:
+            print("ERROR: Cannot start picture capture - camera not initialized")
+            return False
+            
+        if self.picture_thread and self.picture_thread.is_alive():
+            return False
+            
+        self.capture_pictures = True
+        self.trial_number = trial_number
+        
+        self.picture_thread = threading.Thread(
+            target=self._picture_capture_thread,
+            args=(db_connection, trial_number)
+        )
+        self.picture_thread.daemon = True
+        self.picture_thread.start()
+        
+        return True
+    
+    def stop_picture_capture(self):
+        """Stop picture capture"""
+        self.capture_pictures = False
+        
+        if self.picture_thread and self.picture_thread.is_alive():
+            self.picture_thread.join(timeout=2.0)
+    
+    def stop_all_detection(self):
+        """Stop all detection threads"""
+        self.detection_active = False
+        self.capture_pictures = False
+        self.stop_detection.set()
+        
+        # Wait for threads to finish
+        if self.detection_thread and self.detection_thread.is_alive():
+            self.detection_thread.join(timeout=2.0)
+            
+        if self.picture_thread and self.picture_thread.is_alive():
+            self.picture_thread.join(timeout=2.0)
+    
+    def is_motion_detected(self):
+        """Check if motion has been detected"""
+        return self.motion_detected_flag
+    
+    def is_face_detected(self):
+        """Check if face has been detected"""
+        return self.face_detected_flag
+    
+    def save_captured_pictures(self, db_connection):
+        """Save all captured pictures to database"""
+        if not db_connection:
+            return
+            
+        cursor = db_connection.cursor()
+        pictures_saved = 0
+        
+        while not self.picture_queue.empty():
+            try:
+                picture_data = self.picture_queue.get_nowait()
+                
+                cursor.execute('''INSERT INTO trial_pictures 
+                    (trial_number, timestamp, frame_number, image_data, image_width, image_height)
+                    VALUES (?, ?, ?, ?, ?, ?)''',
+                    (picture_data['trial_number'],
+                     picture_data['timestamp'],
+                     picture_data['frame_number'],
+                     picture_data['image_data'],
+                     picture_data['image_width'],
+                     picture_data['image_height']))
+                
+                pictures_saved += 1
+                
+            except queue.Empty:
+                break
+            except Exception as e:
+                print(f"Error saving picture: {e}")
+        
+        if pictures_saved > 0:
+            db_connection.commit()
+            print(f"Saved {pictures_saved} pictures to database")
+    
+    def cleanup(self):
+        """Cleanup all resources"""
+        print("Cleaning up camera system...")
+        self.stop_all_detection()
+        
+        if self.cap:
+            self.cap.release()
+            
+        cv2.destroyAllWindows()
+        print("Camera system cleanup complete")
+    
+    def get_camera_info(self):
+        """Get information about the initialized camera"""
+        if not self.camera_initialized or not self.cap:
+            return "Camera not initialized"
+        
+        try:
+            width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            fps = self.cap.get(cv2.CAP_PROP_FPS)
+            backend = self.cap.getBackendName()
+            
+            return f"Camera: {width}x{height} @ {fps} FPS (Backend: {backend})"
+        except:
+            return "Camera info unavailable"
+
 class CameraDetectionSystem:
     def __init__(self):
         print('Camera setup...')
@@ -253,8 +776,6 @@ class CameraDetectionSystem:
         cv2.destroyAllWindows()
 
 
-
-
 class experiment():
     def __init__(self):
         self.DEBUG = True # Use buttons instead of keyboard and fullscreen display
@@ -477,6 +998,20 @@ class experiment():
         
         # Initialize camera detection system
         self.camera_system = CameraDetectionSystem() 
+
+        # Initialize cross-platform camera detection system
+        self.camera_system = CrossPlatformCameraDetectionSystem()
+        
+        # Print camera info
+        print(f"Platform: {self.camera_system.platform}")
+        print(f"Raspberry Pi: {self.camera_system.is_raspberry_pi}")
+        print(f"Camera Status: {self.camera_system.get_camera_info()}")
+        
+        # Detection timeouts
+        self.MOTION_TIMEOUT = 300  # 5 minutes
+        self.FACE_TIMEOUT = 30     # 30 seconds
+
+
         # Detection timeouts
         self.MOTION_TIMEOUT = 300  # 5 minutes
         self.FACE_TIMEOUT = 10     # 10 seconds
@@ -642,16 +1177,75 @@ class experiment():
         except Exception as e:
             print(f"Database setup error: {e}")
 
+    # def wait_for_motion_and_face(self):
+    #     """
+    #     Wait for motion detection, then face detection
+    #     Returns True if both detected, False otherwise
+    #     """
+    #     # Reset detection system
+    #     self.camera_system.reset_for_new_detection_cycle()
+        
+    #     # Start detection cycle
+    #     self.camera_system.start_detection_cycle()
+        
+    #     print("Waiting for motion detection...")
+    #     motion_start_time = time.time()
+        
+    #     # Wait for motion detection
+    #     while time.time() - motion_start_time < self.MOTION_TIMEOUT:
+    #         if self.camera_system.is_motion_detected():
+    #             self.ts_motion_detect = pygame.time.get_ticks()
+    #             print(f"Motion detected at {self.ts_motion_detect} ms!")
+    #             break
+                
+    #         # Handle pygame events
+    #         for event in pygame.event.get():
+    #             if event.type == pygame.QUIT:
+    #                 return False
+    #             elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+    #                 return False
+            
+    #         time.sleep(0.01)
+    #     else:
+    #         print("Motion detection timeout")
+    #         return False
+        
+    #     # Now wait for face detection
+    #     print("Motion detected! Now waiting for face...")
+    #     face_start_time = time.time()
+        
+    #     while time.time() - face_start_time < self.FACE_TIMEOUT:
+    #         if self.camera_system.is_face_detected():
+    #             self.ts_face_detect = pygame.time.get_ticks()
+    #             print(f"Face detected at {self.ts_face_detect} ms!")
+    #             return True
+                
+    #         # Handle pygame events
+    #         for event in pygame.event.get():
+    #             if event.type == pygame.QUIT:
+    #                 return False
+    #             elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+    #                 return False
+            
+    #         time.sleep(0.01)
+        
+    #     print("Face detection timeout - returning to motion detection")
+    #     return False
+
     def wait_for_motion_and_face(self):
         """
         Wait for motion detection, then face detection
         Returns True if both detected, False otherwise
         """
         # Reset detection system
-        self.camera_system.reset_for_new_detection_cycle()
+        if not self.camera_system.reset_for_new_detection_cycle():
+            print("ERROR: Could not reset camera system")
+            return False
         
         # Start detection cycle
-        self.camera_system.start_detection_cycle()
+        if not self.camera_system.start_detection_cycle():
+            print("ERROR: Could not start detection cycle")
+            return False
         
         print("Waiting for motion detection...")
         motion_start_time = time.time()
@@ -696,7 +1290,7 @@ class experiment():
         
         print("Face detection timeout - returning to motion detection")
         return False
-
+    
     def setup_new_trial(self):
         # time stamps
         self.ts_trial_start = pygame.time.get_ticks()
