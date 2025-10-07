@@ -102,12 +102,283 @@ class CrossPlatformCameraDetectionSystem:
             self._setup_windows_camera()
     
     def _setup_raspberry_pi_camera(self):
-        """Setup camera for Raspberry Pi with ArduCam IMX708"""
+        """Setup camera for Raspberry Pi - supports both libcamera and rpicam"""
         try:
-            # Try libcamera first (preferred for newer Raspberry Pi OS)
-            print("Attempting to initialize ArduCam IMX708 with libcamera...")
+            print("Attempting to initialize ArduCam IMX708...")
             
-            # For ArduCam IMX708, try different backends
+            # First, try to detect which camera system is available
+            camera_system = self._detect_camera_system()
+            
+            if camera_system == "rpicam":
+                self._setup_rpicam()
+            elif camera_system == "libcamera":
+                self._setup_libcamera()
+            else:
+                self._setup_legacy_camera()
+                
+        except Exception as e:
+            print(f"Error setting up Raspberry Pi camera: {e}")
+            self.camera_initialized = False
+    # def _setup_raspberry_pi_camera(self):
+    #     """Setup camera for Raspberry Pi with ArduCam IMX708"""
+    #     try:
+    #         # Try libcamera first (preferred for newer Raspberry Pi OS)
+    #         print("Attempting to initialize ArduCam IMX708 with libcamera...")
+            
+    #         # For ArduCam IMX708, try different backends
+    #         backends_to_try = [
+    #             cv2.CAP_V4L2,      # Video4Linux2 (most common on Linux)
+    #             cv2.CAP_GSTREAMER, # GStreamer
+    #             cv2.CAP_ANY        # Let OpenCV decide
+    #         ]
+            
+    #         camera_indices = [0, 1, 2]  # Try different camera indices
+            
+    #         for backend in backends_to_try:
+    #             for cam_idx in camera_indices:
+    #                 try:
+    #                     print(f"Trying camera index {cam_idx} with backend {backend}")
+    #                     self.cap = cv2.VideoCapture(cam_idx, backend)
+                        
+    #                     if self.cap.isOpened():
+    #                         # Test if we can read a frame
+    #                         ret, frame = self.cap.read()
+    #                         if ret and frame is not None:
+    #                             print(f"Successfully initialized camera {cam_idx} with backend {backend}")
+    #                             self._configure_raspberry_pi_camera()
+    #                             self.camera_initialized = True
+    #                             return
+    #                         else:
+    #                             self.cap.release()
+                        
+    #                 except Exception as e:
+    #                     print(f"Failed camera {cam_idx} with backend {backend}: {e}")
+    #                     if self.cap:
+    #                         self.cap.release()
+            
+    #         # If all else fails, try system commands for libcamera
+    #         print("Trying alternative libcamera approach...")
+    #         self._try_libcamera_approach()
+            
+    #     except Exception as e:
+    #         print(f"Error setting up Raspberry Pi camera: {e}")
+    #         self.camera_initialized = False
+    
+    def _detect_camera_system(self):
+        """Detect which camera system is available"""
+        import subprocess
+        import os
+        
+        try:
+            # Check for rpicam (newer Pi OS Bookworm/Bullseye)
+            result = subprocess.run(['which', 'rpicam-hello'], 
+                                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print("Detected rpicam system (Pi OS Bookworm/Bullseye)")
+                return "rpicam"
+        except:
+            pass
+        
+        try:
+            # Check for libcamera (older systems)
+            result = subprocess.run(['which', 'libcamera-hello'], 
+                                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print("Detected libcamera system (older Pi OS)")
+                return "libcamera"
+        except:
+            pass
+        
+        # Check if /boot/config.txt has camera enabled
+        try:
+            if os.path.exists('/boot/config.txt'):
+                with open('/boot/config.txt', 'r') as f:
+                    content = f.read()
+                    if 'camera_auto_detect=1' in content or 'start_x=1' in content:
+                        print("Camera appears to be enabled in config")
+            elif os.path.exists('/boot/firmware/config.txt'):
+                with open('/boot/firmware/config.txt', 'r') as f:
+                    content = f.read()
+                    if 'camera_auto_detect=1' in content:
+                        print("Camera appears to be enabled in config")
+        except:
+            pass
+        
+        print("Could not detect specific camera system, trying legacy methods")
+        return "legacy"
+
+    def _setup_rpicam(self):
+        """Setup camera using rpicam (Pi OS Bookworm/Bullseye)"""
+        try:
+            # Method 1: Try rpicam with GStreamer pipeline
+            print("Trying rpicam with GStreamer pipeline...")
+            
+            # Updated GStreamer pipeline for rpicam
+            gst_pipeline = (
+                "rpicamsrc ! "
+                "video/x-raw,width=1280,height=720,framerate=30/1,format=RGB ! "
+                "videoconvert ! "
+                "appsink drop=1 max-buffers=1"
+            )
+            
+            self.cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+            
+            if self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    print("Successfully initialized camera with rpicam GStreamer pipeline")
+                    self._configure_raspberry_pi_camera()
+                    self.camera_initialized = True
+                    return
+            
+            # Method 2: Try alternative rpicam pipeline
+            print("Trying alternative rpicam pipeline...")
+            alt_pipeline = (
+                "rpicamsrc ! "
+                "capsfilter caps=video/x-raw,width=1280,height=720,framerate=30/1 ! "
+                "videoconvert ! "
+                "videoscale ! "
+                "appsink"
+            )
+            
+            if self.cap:
+                self.cap.release()
+            
+            self.cap = cv2.VideoCapture(alt_pipeline, cv2.CAP_GSTREAMER)
+            
+            if self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    print("Successfully initialized camera with alternative rpicam pipeline")
+                    self._configure_raspberry_pi_camera()
+                    self.camera_initialized = True
+                    return
+            
+            # Method 3: Try using rpicam through subprocess (for preview/testing)
+            self._test_rpicam_subprocess()
+            
+        except Exception as e:
+            print(f"rpicam setup failed: {e}")
+            self._setup_legacy_camera()
+
+    def _setup_libcamera(self):
+        """Setup camera using libcamera (older Pi OS)"""
+        try:
+            print("Trying libcamera with GStreamer pipeline...")
+            
+            # Original libcamera pipeline
+            gst_pipeline = (
+                "libcamerasrc ! "
+                "video/x-raw,width=1280,height=720,framerate=30/1 ! "
+                "videoconvert ! "
+                "appsink drop=1"
+            )
+            
+            self.cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+            
+            if self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    print("Successfully initialized camera with libcamera GStreamer pipeline")
+                    self._configure_raspberry_pi_camera()
+                    self.camera_initialized = True
+                    return
+            
+        except Exception as e:
+            print(f"libcamera setup failed: {e}")
+            self._setup_legacy_camera()
+
+    def _test_rpicam_subprocess(self):
+        """Test rpicam availability using subprocess"""
+        import subprocess
+        import time
+        
+        try:
+            print("Testing rpicam with subprocess...")
+            
+            # Test if rpicam can capture
+            cmd = [
+                'rpicam-still', 
+                '--output', '/tmp/test_capture.jpg',
+                '--width', '640',
+                '--height', '480',
+                '--timeout', '1000'  # 1 second timeout
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                print("rpicam-still test successful")
+                # Try to setup streaming
+                self._setup_rpicam_streaming()
+            else:
+                print(f"rpicam-still failed: {result.stderr}")
+                
+        except subprocess.TimeoutExpired:
+            print("rpicam-still timeout")
+        except Exception as e:
+            print(f"rpicam subprocess test failed: {e}")
+
+    def _setup_rpicam_streaming(self):
+        """Setup rpicam for video streaming"""
+        try:
+            # Try rpicam-vid with stdout streaming
+            print("Setting up rpicam streaming...")
+            
+            # This approach uses rpicam-vid to stream to stdout
+            # and then captures it with OpenCV
+            gst_pipeline = (
+                "rpicam-vid --inline --listen -t 0 --width 1280 --height 720 "
+                "--framerate 30 --output - | "
+                "gst-launch-1.0 fdsrc ! "
+                "h264parse ! "
+                "avdec_h264 ! "
+                "videoconvert ! "
+                "appsink"
+            )
+            
+            # Alternative: Use V4L2 loopback if available
+            self._try_v4l2_loopback()
+            
+        except Exception as e:
+            print(f"rpicam streaming setup failed: {e}")
+
+    def _try_v4l2_loopback(self):
+        """Try to use V4L2 loopback device"""
+        try:
+            import subprocess
+            import time
+            
+            print("Trying V4L2 loopback approach...")
+            
+            # Check if v4l2loopback is available
+            result = subprocess.run(['lsmod'], capture_output=True, text=True)
+            if 'v4l2loopback' not in result.stdout:
+                print("V4L2 loopback not available")
+                return
+            
+            # Start rpicam-vid streaming to loopback device
+            cmd = [
+                'rpicam-vid',
+                '--inline',
+                '--width', '1280',
+                '--height', '720',
+                '--framerate', '30',
+                '--output', '-'
+            ]
+            
+            # This would need additional setup for loopback device
+            print("V4L2 loopback requires additional configuration")
+            
+        except Exception as e:
+            print(f"V4L2 loopback failed: {e}")        
+
+    def _setup_legacy_camera(self):
+        """Fallback to legacy camera methods"""
+        try:
+            print("Trying legacy camera initialization...")
+            
+            # Try different backends
             backends_to_try = [
                 cv2.CAP_V4L2,      # Video4Linux2 (most common on Linux)
                 cv2.CAP_GSTREAMER, # GStreamer
@@ -132,20 +403,69 @@ class CrossPlatformCameraDetectionSystem:
                                 return
                             else:
                                 self.cap.release()
-                        
+                                
                     except Exception as e:
                         print(f"Failed camera {cam_idx} with backend {backend}: {e}")
                         if self.cap:
                             self.cap.release()
             
-            # If all else fails, try system commands for libcamera
-            print("Trying alternative libcamera approach...")
-            self._try_libcamera_approach()
+            print("ERROR: Could not initialize any camera")
+            self.camera_initialized = False
             
         except Exception as e:
-            print(f"Error setting up Raspberry Pi camera: {e}")
+            print(f"Legacy camera setup failed: {e}")
             self.camera_initialized = False
-    
+
+    def _configure_raspberry_pi_camera(self):
+        """Configure ArduCam IMX708 settings - updated for both systems"""
+        if not self.cap or not self.cap.isOpened():
+            return
+            
+        try:
+            # ArduCam IMX708 optimal settings
+            # Set resolution (IMX708 supports up to 4608x2592, but we'll use smaller for performance)
+            success_width = self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            success_height = self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            
+            # Set FPS
+            success_fps = self.cap.set(cv2.CAP_PROP_FPS, 30)
+            
+            # Set format (try different formats)
+            formats_to_try = [
+                (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')),
+                (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y', 'U', 'Y', 'V')),
+                (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('R', 'G', 'B', '3')),
+            ]
+            
+            for prop, fourcc in formats_to_try:
+                try:
+                    if self.cap.set(prop, fourcc):
+                        print(f"Successfully set format: {fourcc}")
+                        break
+                except:
+                    continue
+            
+            # Additional IMX708 specific settings
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer for real-time
+            
+            # Try to set exposure and gain if supported
+            try:
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Manual exposure
+                self.cap.set(cv2.CAP_PROP_EXPOSURE, -6)  # Adjust as needed
+            except:
+                print("Could not set exposure settings")
+            
+            # Verify settings
+            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+            
+            print(f"Camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS")
+            print(f"Settings success - Width: {success_width}, Height: {success_height}, FPS: {success_fps}")
+            
+        except Exception as e:
+            print(f"Error configuring Raspberry Pi camera: {e}")
+
     def _configure_raspberry_pi_camera(self):
         """Configure ArduCam IMX708 settings"""
         if not self.cap or not self.cap.isOpened():
