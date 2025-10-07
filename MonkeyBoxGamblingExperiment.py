@@ -895,11 +895,11 @@ class experiment():
         
         if self.DEBUG:
             self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions 
-            # self.current_conditions = self.gmbl_sure_conditions
+            self.current_conditions = self.gmbl_sure_conditions
         else:
             # TODO: MAKE RANDOM
             self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
-            # self.current_conditions = self.gmbl_sure_conditions
+            self.current_conditions = self.gmbl_sure_conditions
         
         self.total_trials = len(self.current_conditions)
         self.current_trials_counter = 0
@@ -1308,11 +1308,11 @@ class experiment():
             # shuffle trials and reset block counter
             if self.DEBUG:
                 self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
-                # self.current_conditions = self.gmbl_sure_conditions
+                self.current_conditions = self.gmbl_sure_conditions
                 self.current_trials_counter = 0
             else:
                 self.current_conditions = random.sample(self.one_opt_conditions) + random.sample(self.two_opt_conditions) + random.sample(self.gmbl_sure_conditions) + random.sample(self.gmbl_gmbl_conditions)
-                # self.current_conditions = self.gmbl_sure_conditions
+                self.current_conditions = self.gmbl_sure_conditions
                 self.current_trials_counter = 0
 
         # going through the list of conditions using the counter for the current trial block
@@ -1646,6 +1646,8 @@ class experiment():
                     fbloc = self.RIGHT_CIRCLE_POS
                 else:
                     fbloc = self.LEFT_CIRCLE_POS  
+            # draw win or lose amount 1
+            pygame.draw.circle(self.screen, self.reward_color, fbloc, self.CIRCLE_RADIUS)
             
         if self.trial_type == 'choice gamble gamble':
             if self.opt_sp_config == self.choice: # chose option 1 gamble
