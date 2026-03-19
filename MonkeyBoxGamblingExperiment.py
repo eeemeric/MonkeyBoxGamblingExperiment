@@ -5,6 +5,7 @@ Created on Wed Sep 24 17:25:24 2025
 @author: eemeric2
 """
 
+from pathlib import Path
 import pygame
 import random
 import time
@@ -20,861 +21,61 @@ import math
 import traceback
 import queue
 
-import cv2
-import threading
-import queue
-import time
-import numpy as np
-import platform
-import os
-
-class CrossPlatformCameraDetectionSystem:
-    def __init__(self):
-        self.platform = platform.system().lower()
-        self.is_raspberry_pi = self._detect_raspberry_pi()
-        
-        # Camera setup
-        self.cap = None
-        self.camera_initialized = False
-        self.setup_camera()
-        
-        # Face detection
-        self.face_cascade = self._load_face_cascade()
-        
-        # Motion detection
-        self.background_subtractor = None
-        self.motion_threshold = 5000
-        self.frames_to_stabilize = 30
-        
-        # Detection flags
-        self.motion_detected_flag = False
-        self.face_detected_flag = False
-        
-        # Threading controls
-        self.detection_active = False
-        self.detection_thread = None
-        self.stop_detection = threading.Event()
-        
-        # Picture capture during trials
-        self.capture_pictures = False
-        self.picture_thread = None
-        self.picture_queue = queue.Queue()
-        self.trial_number = 0
-        
-    def _detect_raspberry_pi(self):
-        """Detect if running on Raspberry Pi"""
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                cpuinfo = f.read()
-            return 'BCM' in cpuinfo or 'Raspberry Pi' in cpuinfo
-        except:
-            return False
-    
-    def _load_face_cascade(self):
-        """Load face cascade with fallback options"""
-        cascade_files = [
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml',
-            '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
-            '/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_default.xml'
-        ]
-        
-        for cascade_file in cascade_files:
-            if os.path.exists(cascade_file):
-                try:
-                    cascade = cv2.CascadeClassifier(cascade_file)
-                    if not cascade.empty():
-                        print(f"Loaded face cascade from: {cascade_file}")
-                        return cascade
-                except Exception as e:
-                    print(f"Failed to load cascade from {cascade_file}: {e}")
-        
-        print("Warning: Could not load face cascade classifier")
-        return None
-    
-    def setup_camera(self):
-        """Setup camera based on platform"""
-        print(f"Setting up camera for {self.platform}")
-        print(f"Raspberry Pi detected: {self.is_raspberry_pi}")
-        
-        if self.is_raspberry_pi:
-            self._setup_raspberry_pi_camera()
-        else:
-            self._setup_windows_camera()
-    
-    def _setup_raspberry_pi_camera(self):
-        """Setup camera for Raspberry Pi - supports both libcamera and rpicam"""
-        try:
-            print("Attempting to initialize ArduCam IMX708...")
-            
-            # First, try to detect which camera system is available
-            camera_system = self._detect_camera_system()
-            
-            if camera_system == "rpicam":
-                self._setup_rpicam()
-            elif camera_system == "libcamera":
-                self._setup_libcamera()
-            else:
-                self._setup_legacy_camera()
-                
-        except Exception as e:
-            print(f"Error setting up Raspberry Pi camera: {e}")
-            self.camera_initialized = False
-    # def _setup_raspberry_pi_camera(self):
-    #     """Setup camera for Raspberry Pi with ArduCam IMX708"""
-    #     try:
-    #         # Try libcamera first (preferred for newer Raspberry Pi OS)
-    #         print("Attempting to initialize ArduCam IMX708 with libcamera...")
-            
-    #         # For ArduCam IMX708, try different backends
-    #         backends_to_try = [
-    #             cv2.CAP_V4L2,      # Video4Linux2 (most common on Linux)
-    #             cv2.CAP_GSTREAMER, # GStreamer
-    #             cv2.CAP_ANY        # Let OpenCV decide
-    #         ]
-            
-    #         camera_indices = [0, 1, 2]  # Try different camera indices
-            
-    #         for backend in backends_to_try:
-    #             for cam_idx in camera_indices:
-    #                 try:
-    #                     print(f"Trying camera index {cam_idx} with backend {backend}")
-    #                     self.cap = cv2.VideoCapture(cam_idx, backend)
-                        
-    #                     if self.cap.isOpened():
-    #                         # Test if we can read a frame
-    #                         ret, frame = self.cap.read()
-    #                         if ret and frame is not None:
-    #                             print(f"Successfully initialized camera {cam_idx} with backend {backend}")
-    #                             self._configure_raspberry_pi_camera()
-    #                             self.camera_initialized = True
-    #                             return
-    #                         else:
-    #                             self.cap.release()
-                        
-    #                 except Exception as e:
-    #                     print(f"Failed camera {cam_idx} with backend {backend}: {e}")
-    #                     if self.cap:
-    #                         self.cap.release()
-            
-    #         # If all else fails, try system commands for libcamera
-    #         print("Trying alternative libcamera approach...")
-    #         self._try_libcamera_approach()
-            
-    #     except Exception as e:
-    #         print(f"Error setting up Raspberry Pi camera: {e}")
-    #         self.camera_initialized = False
-    
-    def _detect_camera_system(self):
-        """Detect which camera system is available"""
-        import subprocess
-        import os
-        
-        try:
-            # Check for rpicam (newer Pi OS Bookworm/Bullseye)
-            result = subprocess.run(['which', 'rpicam-hello'], 
-                                capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                print("Detected rpicam system (Pi OS Bookworm/Bullseye)")
-                return "rpicam"
-        except:
-            pass
-        
-        try:
-            # Check for libcamera (older systems)
-            result = subprocess.run(['which', 'libcamera-hello'], 
-                                capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                print("Detected libcamera system (older Pi OS)")
-                return "libcamera"
-        except:
-            pass
-        
-        # Check if /boot/config.txt has camera enabled
-        try:
-            if os.path.exists('/boot/config.txt'):
-                with open('/boot/config.txt', 'r') as f:
-                    content = f.read()
-                    if 'camera_auto_detect=1' in content or 'start_x=1' in content:
-                        print("Camera appears to be enabled in config")
-            elif os.path.exists('/boot/firmware/config.txt'):
-                with open('/boot/firmware/config.txt', 'r') as f:
-                    content = f.read()
-                    if 'camera_auto_detect=1' in content:
-                        print("Camera appears to be enabled in config")
-        except:
-            pass
-        
-        print("Could not detect specific camera system, trying legacy methods")
-        return "legacy"
-
-    def _setup_rpicam(self):
-        """Setup camera using rpicam (Pi OS Bookworm/Bullseye)"""
-        try:
-            # Method 1: Try rpicam with GStreamer pipeline
-            print("Trying rpicam with GStreamer pipeline...")
-            
-            # Updated GStreamer pipeline for rpicam
-            gst_pipeline = (
-                "rpicamsrc ! "
-                "video/x-raw,width=1280,height=720,framerate=30/1,format=RGB ! "
-                "videoconvert ! "
-                "appsink drop=1 max-buffers=1"
-            )
-            
-            self.cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-            
-            if self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
-                    print("Successfully initialized camera with rpicam GStreamer pipeline")
-                    self._configure_raspberry_pi_camera()
-                    self.camera_initialized = True
-                    return
-            
-            # Method 2: Try alternative rpicam pipeline
-            print("Trying alternative rpicam pipeline...")
-            alt_pipeline = (
-                "rpicamsrc ! "
-                "capsfilter caps=video/x-raw,width=1280,height=720,framerate=30/1 ! "
-                "videoconvert ! "
-                "videoscale ! "
-                "appsink"
-            )
-            
-            if self.cap:
-                self.cap.release()
-            
-            self.cap = cv2.VideoCapture(alt_pipeline, cv2.CAP_GSTREAMER)
-            
-            if self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
-                    print("Successfully initialized camera with alternative rpicam pipeline")
-                    self._configure_raspberry_pi_camera()
-                    self.camera_initialized = True
-                    return
-            
-            # Method 3: Try using rpicam through subprocess (for preview/testing)
-            self._test_rpicam_subprocess()
-            
-        except Exception as e:
-            print(f"rpicam setup failed: {e}")
-            self._setup_legacy_camera()
-
-    def _setup_libcamera(self):
-        """Setup camera using libcamera (older Pi OS)"""
-        try:
-            print("Trying libcamera with GStreamer pipeline...")
-            
-            # Original libcamera pipeline
-            gst_pipeline = (
-                "libcamerasrc ! "
-                "video/x-raw,width=1280,height=720,framerate=30/1 ! "
-                "videoconvert ! "
-                "appsink drop=1"
-            )
-            
-            self.cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-            
-            if self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
-                    print("Successfully initialized camera with libcamera GStreamer pipeline")
-                    self._configure_raspberry_pi_camera()
-                    self.camera_initialized = True
-                    return
-            
-        except Exception as e:
-            print(f"libcamera setup failed: {e}")
-            self._setup_legacy_camera()
-
-    def _test_rpicam_subprocess(self):
-        """Test rpicam availability using subprocess"""
-        import subprocess
-        import time
-        
-        try:
-            print("Testing rpicam with subprocess...")
-            
-            # Test if rpicam can capture
-            cmd = [
-                'rpicam-still', 
-                '--output', '/tmp/test_capture.jpg',
-                '--width', '640',
-                '--height', '480',
-                '--timeout', '1000'  # 1 second timeout
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                print("rpicam-still test successful")
-                # Try to setup streaming
-                self._setup_rpicam_streaming()
-            else:
-                print(f"rpicam-still failed: {result.stderr}")
-                
-        except subprocess.TimeoutExpired:
-            print("rpicam-still timeout")
-        except Exception as e:
-            print(f"rpicam subprocess test failed: {e}")
-
-    def _setup_rpicam_streaming(self):
-        """Setup rpicam for video streaming"""
-        try:
-            # Try rpicam-vid with stdout streaming
-            print("Setting up rpicam streaming...")
-            
-            # This approach uses rpicam-vid to stream to stdout
-            # and then captures it with OpenCV
-            gst_pipeline = (
-                "rpicam-vid --inline --listen -t 0 --width 1280 --height 720 "
-                "--framerate 30 --output - | "
-                "gst-launch-1.0 fdsrc ! "
-                "h264parse ! "
-                "avdec_h264 ! "
-                "videoconvert ! "
-                "appsink"
-            )
-            
-            # Alternative: Use V4L2 loopback if available
-            self._try_v4l2_loopback()
-            
-        except Exception as e:
-            print(f"rpicam streaming setup failed: {e}")
-
-    def _try_v4l2_loopback(self):
-        """Try to use V4L2 loopback device"""
-        try:
-            import subprocess
-            import time
-            
-            print("Trying V4L2 loopback approach...")
-            
-            # Check if v4l2loopback is available
-            result = subprocess.run(['lsmod'], capture_output=True, text=True)
-            if 'v4l2loopback' not in result.stdout:
-                print("V4L2 loopback not available")
-                return
-            
-            # Start rpicam-vid streaming to loopback device
-            cmd = [
-                'rpicam-vid',
-                '--inline',
-                '--width', '1280',
-                '--height', '720',
-                '--framerate', '30',
-                '--output', '-'
-            ]
-            
-            # This would need additional setup for loopback device
-            print("V4L2 loopback requires additional configuration")
-            
-        except Exception as e:
-            print(f"V4L2 loopback failed: {e}")        
-
-    def _setup_legacy_camera(self):
-        """Fallback to legacy camera methods"""
-        try:
-            print("Trying legacy camera initialization...")
-            
-            # Try different backends
-            backends_to_try = [
-                cv2.CAP_V4L2,      # Video4Linux2 (most common on Linux)
-                cv2.CAP_GSTREAMER, # GStreamer
-                cv2.CAP_ANY        # Let OpenCV decide
-            ]
-            
-            camera_indices = [0, 1, 2]  # Try different camera indices
-            
-            for backend in backends_to_try:
-                for cam_idx in camera_indices:
-                    try:
-                        print(f"Trying camera index {cam_idx} with backend {backend}")
-                        self.cap = cv2.VideoCapture(cam_idx, backend)
-                        
-                        if self.cap.isOpened():
-                            # Test if we can read a frame
-                            ret, frame = self.cap.read()
-                            if ret and frame is not None:
-                                print(f"Successfully initialized camera {cam_idx} with backend {backend}")
-                                self._configure_raspberry_pi_camera()
-                                self.camera_initialized = True
-                                return
-                            else:
-                                self.cap.release()
-                                
-                    except Exception as e:
-                        print(f"Failed camera {cam_idx} with backend {backend}: {e}")
-                        if self.cap:
-                            self.cap.release()
-            
-            print("ERROR: Could not initialize any camera")
-            self.camera_initialized = False
-            
-        except Exception as e:
-            print(f"Legacy camera setup failed: {e}")
-            self.camera_initialized = False
-
-    def _configure_raspberry_pi_camera(self):
-        """Configure ArduCam IMX708 settings - updated for both systems"""
-        if not self.cap or not self.cap.isOpened():
-            return
-            
-        try:
-            # ArduCam IMX708 optimal settings
-            # Set resolution (IMX708 supports up to 4608x2592, but we'll use smaller for performance)
-            success_width = self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            success_height = self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            
-            # Set FPS
-            success_fps = self.cap.set(cv2.CAP_PROP_FPS, 30)
-            
-            # Set format (try different formats)
-            formats_to_try = [
-                (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')),
-                (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y', 'U', 'Y', 'V')),
-                (cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('R', 'G', 'B', '3')),
-            ]
-            
-            for prop, fourcc in formats_to_try:
-                try:
-                    if self.cap.set(prop, fourcc):
-                        print(f"Successfully set format: {fourcc}")
-                        break
-                except:
-                    continue
-            
-            # Additional IMX708 specific settings
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer for real-time
-            
-            # Try to set exposure and gain if supported
-            try:
-                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Manual exposure
-                self.cap.set(cv2.CAP_PROP_EXPOSURE, -6)  # Adjust as needed
-            except:
-                print("Could not set exposure settings")
-            
-            # Verify settings
-            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-            
-            print(f"Camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS")
-            print(f"Settings success - Width: {success_width}, Height: {success_height}, FPS: {success_fps}")
-            
-        except Exception as e:
-            print(f"Error configuring Raspberry Pi camera: {e}")
-
-    def _configure_raspberry_pi_camera(self):
-        """Configure ArduCam IMX708 settings"""
-        if not self.cap or not self.cap.isOpened():
-            return
-            
-        try:
-            # ArduCam IMX708 optimal settings
-            # Set resolution (IMX708 supports up to 4608x2592, but we'll use smaller for performance)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            
-            # Set FPS
-            self.cap.set(cv2.CAP_PROP_FPS, 30)
-            
-            # Set format (try different formats)
-            formats_to_try = [
-                cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
-                cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y', 'U', 'Y', 'V'),
-            ]
-            
-            for i in range(0, len(formats_to_try), 2):
-                try:
-                    self.cap.set(formats_to_try[i], formats_to_try[i+1])
-                    break
-                except:
-                    continue
-            
-            # Additional IMX708 specific settings
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer for real-time
-            
-            # Verify settings
-            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-            
-            print(f"Camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS")
-            
-        except Exception as e:
-            print(f"Error configuring Raspberry Pi camera: {e}")
-    
-    def _try_libcamera_approach(self):
-        """Try using libcamera through GStreamer pipeline"""
-        try:
-            # GStreamer pipeline for libcamera
-            gst_pipeline = (
-                "libcamerasrc ! "
-                "video/x-raw,width=1280,height=720,framerate=30/1 ! "
-                "videoconvert ! "
-                "appsink drop=1"
-            )
-            
-            print("Trying GStreamer libcamera pipeline...")
-            self.cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-            
-            if self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
-                    print("Successfully initialized camera with libcamera GStreamer pipeline")
-                    self.camera_initialized = True
-                    return
-            
-        except Exception as e:
-            print(f"GStreamer libcamera approach failed: {e}")
-        
-        # Final fallback - try basic camera access
-        try:
-            print("Trying basic camera access...")
-            self.cap = cv2.VideoCapture(0)
-            if self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret and frame is not None:
-                    print("Basic camera access successful")
-                    self.camera_initialized = True
-                    return
-        except Exception as e:
-            print(f"Basic camera access failed: {e}")
-        
-        print("ERROR: Could not initialize any camera on Raspberry Pi")
-        self.camera_initialized = False
-    
-    def _setup_windows_camera(self):
-        """Setup camera for Windows"""
-        try:
-            # Try DirectShow first (Windows default)
-            backends_to_try = [
-                cv2.CAP_DSHOW,     # DirectShow (Windows)
-                cv2.CAP_MSMF,      # Microsoft Media Foundation
-                cv2.CAP_ANY        # Let OpenCV decide
-            ]
-            
-            for backend in backends_to_try:
-                for cam_idx in range(3):  # Try camera indices 0, 1, 2
-                    try:
-                        print(f"Trying Windows camera {cam_idx} with backend {backend}")
-                        self.cap = cv2.VideoCapture(cam_idx, backend)
-                        
-                        if self.cap.isOpened():
-                            # Test if we can read a frame
-                            ret, frame = self.cap.read()
-                            if ret and frame is not None:
-                                print(f"Successfully initialized Windows camera {cam_idx}")
-                                self._configure_windows_camera()
-                                self.camera_initialized = True
-                                return
-                            else:
-                                self.cap.release()
-                    
-                    except Exception as e:
-                        print(f"Failed Windows camera {cam_idx}: {e}")
-                        if self.cap:
-                            self.cap.release()
-            
-            print("ERROR: Could not initialize any camera on Windows")
-            self.camera_initialized = False
-            
-        except Exception as e:
-            print(f"Error setting up Windows camera: {e}")
-            self.camera_initialized = False
-    
-    def _configure_windows_camera(self):
-        """Configure Windows camera settings"""
-        if not self.cap or not self.cap.isOpened():
-            return
-            
-        try:
-            # Standard settings for Windows cameras
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            self.cap.set(cv2.CAP_PROP_FPS, 30)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            
-            # Verify settings
-            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-            
-            print(f"Windows camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS")
-            
-        except Exception as e:
-            print(f"Error configuring Windows camera: {e}")
-    
-    def reset_for_new_detection_cycle(self):
-        """Reset detection system for new motion->face cycle"""
-        print("Resetting detection system...")
-        
-        if not self.camera_initialized:
-            print("Camera not initialized, attempting to reinitialize...")
-            self.setup_camera()
-            if not self.camera_initialized:
-                print("ERROR: Cannot reset detection - camera not available")
-                return False
-        
-        # Stop any existing detection
-        self.stop_all_detection()
-        
-        # Reset flags
-        self.motion_detected_flag = False
-        self.face_detected_flag = False
-        
-        # Create fresh background subtractor
-        self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
-            detectShadows=False,
-            varThreshold=50,
-            history=500
-        )
-        
-        # Stabilize background model
-        print("Stabilizing background model...")
-        stabilization_count = 0
-        for i in range(self.frames_to_stabilize):
-            ret, frame = self.cap.read()
-            if ret and frame is not None:
-                self.background_subtractor.apply(frame)
-                stabilization_count += 1
-            else:
-                print(f"Warning: Failed to read frame {i} during stabilization")
-        
-        print(f"Detection system reset complete ({stabilization_count}/{self.frames_to_stabilize} frames)")
-        return True
-    
-    def _detection_thread(self):
-        """Main detection thread: motion -> face detection"""
-        print("Detection thread started")
-        
-        frame_count = 0
-        last_frame_time = time.time()
-        
-        while not self.stop_detection.is_set() and self.detection_active:
-            ret, frame = self.cap.read()
-            if not ret or frame is None:
-                print("Warning: Failed to read camera frame")
-                time.sleep(0.1)
-                continue
-            
-            frame_count += 1
-            current_time = time.time()
-            
-            # Print FPS every 30 frames
-            if frame_count % 30 == 0:
-                fps = 30 / (current_time - last_frame_time)
-                print(f"Camera FPS: {fps:.1f}")
-                last_frame_time = current_time
-            
-            # Phase 1: Motion Detection
-            if not self.motion_detected_flag:
-                fg_mask = self.background_subtractor.apply(frame)
-                motion_area = cv2.countNonZero(fg_mask)
-                
-                if motion_area > self.motion_threshold:
-                    print(f"Motion detected! Area: {motion_area}")
-                    self.motion_detected_flag = True
-                    
-            # Phase 2: Face Detection (only after motion detected)
-            elif not self.face_detected_flag and self.face_cascade is not None:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = self.face_cascade.detectMultiScale(
-                    gray,
-                    scaleFactor=1.1,
-                    minNeighbors=5,
-                    minSize=(50, 50)
-                )
-                
-                if len(faces) > 0:
-                    print(f"Face detected! {len(faces)} face(s) found")
-                    self.face_detected_flag = True
-                    break  # Exit detection loop to run trial
-            
-            time.sleep(0.03)  # ~30 FPS
-        
-        print("Detection thread ended")
-    
-    def _picture_capture_thread(self, db_connection, trial_number):
-        """Capture pictures at 5 FPS during trial"""
-        print("Picture capture thread started")
-        frame_interval = 1.0 / 5.0  # 5 FPS = 0.2 seconds between frames
-        frame_number = 0
-        
-        while self.capture_pictures and not self.stop_detection.is_set():
-            start_time = time.time()
-            
-            ret, frame = self.cap.read()
-            if ret and frame is not None:
-                # Convert frame to JPEG for database storage
-                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
-                _, buffer = cv2.imencode('.jpg', frame, encode_param)
-                image_data = buffer.tobytes()
-                
-                # Store in queue for database insertion
-                picture_data = {
-                    'trial_number': trial_number,
-                    'timestamp': int(time.time() * 1000),  # Use system time if pygame not available
-                    'frame_number': frame_number,
-                    'image_data': image_data,
-                    'image_width': frame.shape[1],
-                    'image_height': frame.shape[0]
-                }
-                
-                self.picture_queue.put(picture_data)
-                frame_number += 1
-                
-                print(f"Captured frame {frame_number} for trial {trial_number}")
-            else:
-                print("Warning: Failed to capture frame for trial picture")
-            
-            # Maintain 5 FPS timing
-            elapsed = time.time() - start_time
-            sleep_time = max(0, frame_interval - elapsed)
-            time.sleep(sleep_time)
-        
-        print("Picture capture thread ended")
-    
-    def start_detection_cycle(self):
-        """Start motion->face detection cycle"""
-        if not self.camera_initialized:
-            print("ERROR: Cannot start detection - camera not initialized")
-            return False
-            
-        if self.detection_thread and self.detection_thread.is_alive():
-            return False
-            
-        self.detection_active = True
-        self.stop_detection.clear()
-        
-        self.detection_thread = threading.Thread(target=self._detection_thread)
-        self.detection_thread.daemon = True
-        self.detection_thread.start()
-        
-        return True
-    
-    def start_picture_capture(self, db_connection, trial_number):
-        """Start capturing pictures at 5 FPS during trial"""
-        if not self.camera_initialized:
-            print("ERROR: Cannot start picture capture - camera not initialized")
-            return False
-            
-        if self.picture_thread and self.picture_thread.is_alive():
-            return False
-            
-        self.capture_pictures = True
-        self.trial_number = trial_number
-        
-        self.picture_thread = threading.Thread(
-            target=self._picture_capture_thread,
-            args=(db_connection, trial_number)
-        )
-        self.picture_thread.daemon = True
-        self.picture_thread.start()
-        
-        return True
-    
-    def stop_picture_capture(self):
-        """Stop picture capture"""
-        self.capture_pictures = False
-        
-        if self.picture_thread and self.picture_thread.is_alive():
-            self.picture_thread.join(timeout=2.0)
-    
-    def stop_all_detection(self):
-        """Stop all detection threads"""
-        self.detection_active = False
-        self.capture_pictures = False
-        self.stop_detection.set()
-        
-        # Wait for threads to finish
-        if self.detection_thread and self.detection_thread.is_alive():
-            self.detection_thread.join(timeout=2.0)
-            
-        if self.picture_thread and self.picture_thread.is_alive():
-            self.picture_thread.join(timeout=2.0)
-    
-    def is_motion_detected(self):
-        """Check if motion has been detected"""
-        return self.motion_detected_flag
-    
-    def is_face_detected(self):
-        """Check if face has been detected"""
-        return self.face_detected_flag
-    
-    def save_captured_pictures(self, db_connection):
-        """Save all captured pictures to database"""
-        if not db_connection:
-            return
-            
-        cursor = db_connection.cursor()
-        pictures_saved = 0
-        
-        while not self.picture_queue.empty():
-            try:
-                picture_data = self.picture_queue.get_nowait()
-                
-                cursor.execute('''INSERT INTO trial_pictures 
-                    (trial_number, timestamp, frame_number, image_data, image_width, image_height)
-                    VALUES (?, ?, ?, ?, ?, ?)''',
-                    (picture_data['trial_number'],
-                     picture_data['timestamp'],
-                     picture_data['frame_number'],
-                     picture_data['image_data'],
-                     picture_data['image_width'],
-                     picture_data['image_height']))
-                
-                pictures_saved += 1
-                
-            except queue.Empty:
-                break
-            except Exception as e:
-                print(f"Error saving picture: {e}")
-        
-        if pictures_saved > 0:
-            db_connection.commit()
-            print(f"Saved {pictures_saved} pictures to database")
-    
-    def cleanup(self):
-        """Cleanup all resources"""
-        print("Cleaning up camera system...")
-        self.stop_all_detection()
-        
-        if self.cap:
-            self.cap.release()
-            
-        cv2.destroyAllWindows()
-        print("Camera system cleanup complete")
-    
-    def get_camera_info(self):
-        """Get information about the initialized camera"""
-        if not self.camera_initialized or not self.cap:
-            return "Camera not initialized"
-        
-        try:
-            width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            fps = self.cap.get(cv2.CAP_PROP_FPS)
-            backend = self.cap.getBackendName()
-            
-            return f"Camera: {width}x{height} @ {fps} FPS (Backend: {backend})"
-        except:
-            return "Camera info unavailable"
+from picamera2 import Picamera2
+from picamera2.encoders import H264Encoder
+from picamera2.outputs import CircularOutput
 
 class CameraDetectionSystem:
-    def __init__(self):
-        print('Camera setup...')
-        # Camera setup
-        self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
+    def __init__(self, output_dir=None):
+        print('Camera setup with picamera2...')
         
-        # Face detection
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        # Set output directory relative to script location
+        if output_dir is None:
+            output_dir = Path(__file__).parent.resolve()
+        else:
+            output_dir = Path(output_dir)
         
+        
+        # Ensure directory exists
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir = str(os.path.join(output_dir,"Album"))
+        print(f"Video output directory: {self.output_dir}")
+        
+        # Video recording
+        self.video_queue = queue.Queue()
+    
+        # Initialize Picamera2
+        self.picam2 = Picamera2()
+        config = self.picam2.create_video_configuration(main={"size": (640, 480)})
+        self.picam2.configure(config)
+        
+        # Setup circular buffer for event-triggered recording
+        self.encoder = H264Encoder(bitrate=10000000)
+        self.circular_output = CircularOutput(buffersize=30)  # ~1 second pre-roll at 30fps
+        
+        self.picam2.start_recording(self.encoder, self.circular_output)
+        print('Camera started with circular buffer')
+        
+        self.recording_active = False
+        self.recording_thread = None
+
+
+        print('Face detection setup...')
+        # Face detection - use downloaded cascade file
+        cascade_file = os.path.expanduser('~/opencv_cascades/haarcascade_frontalface_default.xml')
+
+        if os.path.exists(cascade_file):
+            self.face_cascade = cv2.CascadeClassifier(cascade_file)
+            print(f'Loaded face cascade from: {cascade_file}')
+        else:
+            print(f"Error: Cascade file not found at {cascade_file}")
+            print("Please download it using:")
+            print("mkdir -p ~/opencv_cascades")
+            print("cd ~/opencv_cascades")
+            print("wget https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml")
+            exit()
+                
+        print('Motion detection setup...')
         # Motion detection
         self.background_subtractor = None
         self.motion_threshold = 5000
@@ -889,12 +90,53 @@ class CameraDetectionSystem:
         self.detection_thread = None
         self.stop_detection = threading.Event()
         
+        # Frame queue for sharing between threads
+        self.frame_queue = queue.Queue(maxsize=5)
+        
         # Picture capture during trials
         self.capture_pictures = False
         self.picture_thread = None
         self.picture_queue = queue.Queue()
         self.trial_number = 0
         
+        # Start frame capture thread
+        self.frame_capture_thread = threading.Thread(target=self._frame_capture_thread, daemon=True)
+        self.frame_capture_thread.start()
+        
+    def _frame_capture_thread(self):
+        """Continuously capture frames from picamera2 and put them in queue"""
+        print("Frame capture thread started")
+        while True:
+            try:
+                frame = self.picam2.capture_array()
+                # Convert from RGBA to BGR for OpenCV
+                if frame.shape[2] == 4:  # RGBA
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                
+                # Put frame in queue (drop oldest if full)
+                try:
+                    self.frame_queue.put_nowait(frame)
+                except queue.Full:
+                    try:
+                        self.frame_queue.get_nowait()  # Remove oldest
+                        self.frame_queue.put_nowait(frame)
+                    except queue.Empty:
+                        pass
+                        
+            except Exception as e:
+                print(f"Error in frame capture: {e}")
+                time.sleep(0.01)
+    
+    def _get_latest_frame(self):
+        """Get the most recent frame from the queue"""
+        frame = None
+        while not self.frame_queue.empty():
+            try:
+                frame = self.frame_queue.get_nowait()
+            except queue.Empty:
+                break
+        return frame
+    
     def reset_for_new_detection_cycle(self):
         """Reset detection system for new motion->face cycle"""
         print("Resetting detection system...")
@@ -915,10 +157,13 @@ class CameraDetectionSystem:
         
         # Stabilize background model
         print("Stabilizing background model...")
-        for i in range(self.frames_to_stabilize):
-            ret, frame = self.cap.read()
-            if ret:
+        frames_stabilized = 0
+        while frames_stabilized < self.frames_to_stabilize:
+            frame = self._get_latest_frame()
+            if frame is not None:
                 self.background_subtractor.apply(frame)
+                frames_stabilized += 1
+            time.sleep(0.01)
                 
         print("Detection system reset complete")
     
@@ -927,8 +172,9 @@ class CameraDetectionSystem:
         print("Detection thread started")
         
         while not self.stop_detection.is_set() and self.detection_active:
-            ret, frame = self.cap.read()
-            if not ret:
+            frame = self._get_latest_frame()
+            if frame is None:
+                time.sleep(0.01)
                 continue
             
             # Phase 1: Motion Detection
@@ -939,6 +185,8 @@ class CameraDetectionSystem:
                 if motion_area > self.motion_threshold:
                     print(f"Motion detected! Area: {motion_area}")
                     self.motion_detected_flag = True
+                    # Start recording on motion detection
+                    self._start_event_recording()
                     
             # Phase 2: Face Detection (only after motion detected)
             elif not self.face_detected_flag:
@@ -960,7 +208,7 @@ class CameraDetectionSystem:
         print("Detection thread ended")
     
     def _picture_capture_thread(self, db_connection, trial_number):
-        """Capture pictures at 5 FPS during trial"""
+        """Capture pictures at specified FPS during trial"""
         print("Picture capture thread started")
         frame_interval = 1.0 / 3.0  # 3 FPS = 0.333 seconds between frames
         frame_number = 0
@@ -968,8 +216,8 @@ class CameraDetectionSystem:
         while self.capture_pictures and not self.stop_detection.is_set():
             start_time = time.time()
             
-            ret, frame = self.cap.read()
-            if ret:
+            frame = self._get_latest_frame()
+            if frame is not None:
                 # Convert frame to JPEG for database storage
                 _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                 image_data = buffer.tobytes()
@@ -977,7 +225,7 @@ class CameraDetectionSystem:
                 # Store in queue for database insertion
                 picture_data = {
                     'trial_number': trial_number,
-                    'timestamp': pygame.time.get_ticks(),
+                    'timestamp': time.time(),
                     'frame_number': frame_number,
                     'image_data': image_data,
                     'image_width': frame.shape[1],
@@ -989,12 +237,96 @@ class CameraDetectionSystem:
                 
                 print(f"Captured frame {frame_number} for trial {trial_number}")
             
-            # Maintain 5 FPS timing
+            # Maintain FPS timing
             elapsed = time.time() - start_time
             sleep_time = max(0, frame_interval - elapsed)
             time.sleep(sleep_time)
         
         print("Picture capture thread ended")
+    
+    import os
+
+    def _start_event_recording(self):
+        """Start event-triggered recording with pre-roll buffer"""
+        if self.recording_active:
+            return
+        
+        self.recording_active = True
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(self.output_dir, f"event_recording_{timestamp}.h264")
+        
+        print(f"Event detected! Starting recording to {output_file}")
+        
+        # Set the file output for circular buffer
+        self.circular_output.fileoutput = output_file
+        self.circular_output.start()
+        
+        # Start thread to handle post-event recording duration
+        self.recording_thread = threading.Thread(
+            target=self._post_event_recording_thread,
+            args=(output_file,),
+            daemon=True
+        )
+        self.recording_thread.start()
+        
+        
+    
+    def _post_event_recording_thread(self, output_file, post_event_duration=2):
+        """Record for specified duration after event and save metadata"""
+        print(f"Recording video to {output_file} (pre-roll + {post_event_duration}s post-event)")
+        time.sleep(post_event_duration)
+        
+        # Stop recording
+        self.circular_output.stop()
+        self.recording_active = False
+        print(f"Recording stopped: {output_file}")
+        
+        # Store filename in queue for database insertion
+        self.video_queue.put({
+            'filename': output_file,
+            'timestamp': time.time()
+        })
+
+    def save_event_videos(self, db_connection, trial_number):
+        """Save event video filenames to database"""
+        if not db_connection:
+            print("Database connection is closed, skipping video save")
+            return
+        
+        try:
+            cursor = db_connection.cursor()
+        except Exception as e:
+            print(f"Cannot access database: {e}")
+            return
+        
+        videos_saved = 0
+        
+        while not self.video_queue.empty():
+            try:
+                video_data = self.video_queue.get_nowait()
+                
+                cursor.execute('''INSERT INTO trial_videos 
+                    (trial_number, video_filename, timestamp)
+                    VALUES (?, ?, ?)''',
+                    (trial_number,
+                     video_data['filename'],
+                     video_data['timestamp']))
+                
+                videos_saved += 1
+                
+            except queue.Empty:
+                break
+            except Exception as e:
+                print(f"Error saving video metadata: {e}")
+        
+        if videos_saved > 0:
+            try:
+                db_connection.commit()
+                print(f"Saved {videos_saved} video filenames to database")
+            except Exception as e:
+                print(f"Error committing to database: {e}")
+        
+        
     
     def start_detection_cycle(self):
         """Start motion->face detection cycle"""
@@ -1004,14 +336,13 @@ class CameraDetectionSystem:
         self.detection_active = True
         self.stop_detection.clear()
         
-        self.detection_thread = threading.Thread(target=self._detection_thread)
-        self.detection_thread.daemon = True
+        self.detection_thread = threading.Thread(target=self._detection_thread, daemon=True)
         self.detection_thread.start()
         
         return True
     
     def start_picture_capture(self, db_connection, trial_number):
-        """Start capturing pictures at 5 FPS during trial"""
+        """Start capturing pictures during trial"""
         if self.picture_thread and self.picture_thread.is_alive():
             return False
             
@@ -1020,9 +351,9 @@ class CameraDetectionSystem:
         
         self.picture_thread = threading.Thread(
             target=self._picture_capture_thread,
-            args=(db_connection, trial_number)
+            args=(db_connection, trial_number),
+            daemon=True
         )
-        self.picture_thread.daemon = True
         self.picture_thread.start()
         
         return True
@@ -1055,12 +386,33 @@ class CameraDetectionSystem:
         """Check if face has been detected"""
         return self.face_detected_flag
     
+    def cleanup(self):
+        """Clean up camera resources"""
+        print("Cleaning up camera...")
+        self.stop_all_detection()
+        self.recording_active = False
+        
+        try:
+            self.circular_output.stop()
+        except:
+            pass
+            
+        self.picam2.stop_recording()
+        self.picam2.close()
+        print("Camera cleanup complete")
+    
     def save_captured_pictures(self, db_connection):
         """Save all captured pictures to database"""
         if not db_connection:
+            print("Database connection is closed, skipping picture save")
+            return
+        
+        try:
+            cursor = db_connection.cursor()
+        except Exception as e:
+            print(f"Cannot access database: {e}")
             return
             
-        cursor = db_connection.cursor()
         pictures_saved = 0
         
         while not self.picture_queue.empty():
@@ -1085,15 +437,11 @@ class CameraDetectionSystem:
                 print(f"Error saving picture: {e}")
         
         if pictures_saved > 0:
-            db_connection.commit()
-            print(f"Saved {pictures_saved} pictures to database")
-    
-    def cleanup(self):
-        """Cleanup all resources"""
-        self.stop_all_detection()
-        if self.cap:
-            self.cap.release()
-        cv2.destroyAllWindows()
+            try:
+                db_connection.commit()
+                print(f"Saved {pictures_saved} pictures to database")
+            except Exception as e:
+                print(f"Error committing to database: {e}")
 
 
 class experiment():
@@ -1215,11 +563,11 @@ class experiment():
         
         if self.DEBUG:
             self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions 
-            self.current_conditions = self.gmbl_sure_conditions
+            # self.current_conditions = self.gmbl_gmbl_conditions
         else:
             # TODO: MAKE RANDOM
             self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
-            self.current_conditions = self.gmbl_sure_conditions
+            # self.current_conditions = self.gmbl_gmbl_conditions
         
         self.total_trials = len(self.current_conditions)
         self.current_trials_counter = 0
@@ -1318,20 +666,6 @@ class experiment():
         
         # Initialize camera detection system
         self.camera_system = CameraDetectionSystem() 
-
-        # Initialize cross-platform camera detection system
-        self.camera_system = CrossPlatformCameraDetectionSystem()
-        
-        # Print camera info
-        print(f"Platform: {self.camera_system.platform}")
-        print(f"Raspberry Pi: {self.camera_system.is_raspberry_pi}")
-        print(f"Camera Status: {self.camera_system.get_camera_info()}")
-        
-        # Detection timeouts
-        self.MOTION_TIMEOUT = 300  # 5 minutes
-        self.FACE_TIMEOUT = 30     # 30 seconds
-
-
         # Detection timeouts
         self.MOTION_TIMEOUT = 300  # 5 minutes
         self.FACE_TIMEOUT = 10     # 10 seconds
@@ -1421,7 +755,6 @@ class experiment():
         except Exception as e:
             print(f"Failed to connect to Arduino_reward: {e}")  
             print("Using sound output instead.")
-            self.arduino_reward.close()
             self.arduino_buttons = None
 
     def read_arduino_buttons(self):
@@ -1479,6 +812,15 @@ class experiment():
                 ts_trial_end INTEGER
             )''')
             
+            # Videos table - just store filenames
+            cursor.execute('''CREATE TABLE IF NOT EXISTS trial_videos (
+                video_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trial_number INTEGER,
+                video_filename TEXT,
+                timestamp REAL,
+                FOREIGN KEY (trial_number) REFERENCES trial_data (trial_number)
+            )''')
+            
            # New pictures table for trial photos
             cursor.execute('''CREATE TABLE IF NOT EXISTS trial_pictures (
                 picture_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1497,75 +839,16 @@ class experiment():
         except Exception as e:
             print(f"Database setup error: {e}")
 
-    # def wait_for_motion_and_face(self):
-    #     """
-    #     Wait for motion detection, then face detection
-    #     Returns True if both detected, False otherwise
-    #     """
-    #     # Reset detection system
-    #     self.camera_system.reset_for_new_detection_cycle()
-        
-    #     # Start detection cycle
-    #     self.camera_system.start_detection_cycle()
-        
-    #     print("Waiting for motion detection...")
-    #     motion_start_time = time.time()
-        
-    #     # Wait for motion detection
-    #     while time.time() - motion_start_time < self.MOTION_TIMEOUT:
-    #         if self.camera_system.is_motion_detected():
-    #             self.ts_motion_detect = pygame.time.get_ticks()
-    #             print(f"Motion detected at {self.ts_motion_detect} ms!")
-    #             break
-                
-    #         # Handle pygame events
-    #         for event in pygame.event.get():
-    #             if event.type == pygame.QUIT:
-    #                 return False
-    #             elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
-    #                 return False
-            
-    #         time.sleep(0.01)
-    #     else:
-    #         print("Motion detection timeout")
-    #         return False
-        
-    #     # Now wait for face detection
-    #     print("Motion detected! Now waiting for face...")
-    #     face_start_time = time.time()
-        
-    #     while time.time() - face_start_time < self.FACE_TIMEOUT:
-    #         if self.camera_system.is_face_detected():
-    #             self.ts_face_detect = pygame.time.get_ticks()
-    #             print(f"Face detected at {self.ts_face_detect} ms!")
-    #             return True
-                
-    #         # Handle pygame events
-    #         for event in pygame.event.get():
-    #             if event.type == pygame.QUIT:
-    #                 return False
-    #             elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
-    #                 return False
-            
-    #         time.sleep(0.01)
-        
-    #     print("Face detection timeout - returning to motion detection")
-    #     return False
-
     def wait_for_motion_and_face(self):
         """
         Wait for motion detection, then face detection
         Returns True if both detected, False otherwise
         """
         # Reset detection system
-        if not self.camera_system.reset_for_new_detection_cycle():
-            print("ERROR: Could not reset camera system")
-            return False
+        self.camera_system.reset_for_new_detection_cycle()
         
         # Start detection cycle
-        if not self.camera_system.start_detection_cycle():
-            print("ERROR: Could not start detection cycle")
-            return False
+        self.camera_system.start_detection_cycle()
         
         print("Waiting for motion detection...")
         motion_start_time = time.time()
@@ -1610,7 +893,7 @@ class experiment():
         
         print("Face detection timeout - returning to motion detection")
         return False
-    
+
     def setup_new_trial(self):
         # time stamps
         self.ts_trial_start = pygame.time.get_ticks()
@@ -1619,7 +902,7 @@ class experiment():
         self.ts_outcome_reveal = None
         self.ts_reward_delivered = None
         self.ts_end_of_trial = None
-        
+
         # correct trial flag
         self.success = False
         
@@ -1628,11 +911,11 @@ class experiment():
             # shuffle trials and reset block counter
             if self.DEBUG:
                 self.current_conditions = self.one_opt_conditions + self.two_opt_conditions + self.gmbl_sure_conditions + self.gmbl_gmbl_conditions
-                self.current_conditions = self.gmbl_sure_conditions
+                # self.current_conditions = self.gmbl_gmbl_conditions
                 self.current_trials_counter = 0
             else:
                 self.current_conditions = random.sample(self.one_opt_conditions) + random.sample(self.two_opt_conditions) + random.sample(self.gmbl_sure_conditions) + random.sample(self.gmbl_gmbl_conditions)
-                self.current_conditions = self.gmbl_sure_conditions
+                # self.current_conditions = self.gmbl_gmbl_conditions
                 self.current_trials_counter = 0
 
         # going through the list of conditions using the counter for the current trial block
@@ -1676,7 +959,6 @@ class experiment():
         self.right_color_Win  = None
 
         print("Drawing Stimuli...")
-        self.opt_sp_config = random.choice(['left', 'right'])
         # self.opt_sp_config = 'right'
         
         self.CIRCLE_AREA = math.pi*pow(self.CIRCLE_RADIUS,2)
@@ -1966,8 +1248,6 @@ class experiment():
                     fbloc = self.RIGHT_CIRCLE_POS
                 else:
                     fbloc = self.LEFT_CIRCLE_POS  
-            # draw win or lose amount 1
-            pygame.draw.circle(self.screen, self.reward_color, fbloc, self.CIRCLE_RADIUS)
             
         if self.trial_type == 'choice gamble gamble':
             if self.opt_sp_config == self.choice: # chose option 1 gamble
@@ -2084,20 +1364,26 @@ class experiment():
     
     def run_trial(self):
         print(f"Running Trial {self.total_trial_counter + 1}")      
-        # Start picture capture at 5 FPS
-        self.camera_system.start_picture_capture(
-            self.db_connection, 
-            self.total_trial_counter + 1
-        )
+        # Start picture capture at 3 FPS
+#         self.camera_system.start_picture_capture(
+#             self.db_connection, 
+#             self.total_trial_counter + 1
+#         )
+
+        self.setup_new_trial()
 
         # Arduino LED control: ON
         if self.arduino_buttons_connected:
             try:
-                self.arduino_buttons.write("3\n".encode('utf-8'))
+                if self.trial_type == 'no choice sure' and self.opt_sp_config == 'left':
+                    self.arduino_buttons.write("1\n".encode('utf-8'))
+                if self.trial_type == 'no choice sure' and self.opt_sp_config == 'right':
+                    self.arduino_buttons.write("2\n".encode('utf-8'))
+                if self.trial_type != 'no choice sure':
+                    self.arduino_buttons.write("3\n".encode('utf-8'))
             except Exception as e:
                 print(f"Arduino write error: {e}")
 
-        self.setup_new_trial()
         self.draw_stimuli()
         pygame.display.flip()
         self.ts_stimuli_on = pygame.time.get_ticks()
@@ -2110,20 +1396,24 @@ class experiment():
                 self.arduino_buttons.write("4\n".encode('utf-8'))
             except Exception as e:
                 print(f"Arduino write error: {e}")
+        
         self.handle_choice()
         self.reveal_outcome()
         pygame.time.delay(250)
         self.deliver_reward()
 
-         # Stop picture capture
-        self.camera_system.stop_picture_capture()
+        # Stop picture capture FIRST and wait for it to finish
+#         self.camera_system.stop_picture_capture()
         
-        # Save captured pictures to database
-        self.camera_system.save_captured_pictures(self.db_connection)
+        # THEN save the pictures
+#         self.camera_system.save_captured_pictures(self.db_connection)
+        
+        # And save videos
+        self.camera_system.save_event_videos(self.db_connection, self.total_trial_counter + 1)
 
         self.log_trial_data()
         
-        # clear display wait ITI befor initiating next trial
+        # clear display wait ITI before initiating next trial
         self.screen.fill(self.BLACK)
         pygame.display.flip()
 
@@ -2139,6 +1429,8 @@ class experiment():
         clock = pygame.time.Clock() 
 
         while running: 
+            # randomize spatial config
+            self.opt_sp_config = random.choice(['left', 'right'])
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
