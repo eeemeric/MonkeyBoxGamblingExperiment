@@ -448,6 +448,7 @@ class experiment():
     def __init__(self):
         self.DEBUG = True # Use buttons instead of keyboard and fullscreen display
         self.SIMULATE = False
+        self.welcome_screen_shown = False  # Add this flag
         
         self.max_RT = 5000
         self.ITI = 1000
@@ -839,11 +840,12 @@ class experiment():
             
         except Exception as e:
             print(f"Database setup error: {e}")
+            
 
     def wait_for_motion_and_face(self):
         """
         Wait for motion detection, then face detection
-        Returns True if both detected, False otherwise
+        Returns True if both detected, False if user quits
         """
         # Reset detection system
         self.camera_system.reset_for_new_detection_cycle()
@@ -861,11 +863,13 @@ class experiment():
                 print(f"Motion detected at {self.ts_motion_detect} ms!")
                 break
                 
-            # Handle pygame events
+            # Handle pygame events - including Q key
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
+                    print("Quit event during motion detection")
                     return False
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                    print("Q key pressed during motion detection - exiting")
                     return False
             
             time.sleep(0.01)
@@ -883,17 +887,20 @@ class experiment():
                 print(f"Face detected at {self.ts_face_detect} ms!")
                 return True
                 
-            # Handle pygame events
+            # Handle pygame events - including Q key
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
+                    print("Quit event during face detection")
                     return False
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                    print("Q key pressed during face detection - exiting")
                     return False
             
             time.sleep(0.01)
         
         print("Face detection timeout - returning to motion detection")
         return False
+    
 
     def setup_new_trial(self):
         # time stamps
@@ -1418,59 +1425,86 @@ class experiment():
         self.screen.fill(self.BLACK)
         pygame.display.flip()
 
-        pygame.time.delay(self.ITI)
+        # Wait for ITI duration but allow Q-key to interrupt
+        iti_start = pygame.time.get_ticks()
+        while pygame.time.get_ticks() - iti_start < self.ITI:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                    print("Q key pressed during ITI - exiting")
+                    return False
+            pygame.time.delay(10)  # Small delay to prevent CPU spinning
         
         if self.success == True: # move on to next trial if correct
             self.current_trials_counter += 1
             
+            
     def run(self):
         """Main experiment loop with camera detection"""
         print('Running: Gambling Experiment with Camera Detection')
+        
+        # Clear the welcome screen
+        self.screen.fill(self.BLACK)
+        pygame.display.flip()
+        
         running = True
-        clock = pygame.time.Clock() 
-
-        while running: 
+        
+        while running:  # Runs indefinitely until user quits
             # randomize spatial config
             self.opt_sp_config = random.choice(['left', 'right'])
+            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                     break
-                # Check for a key press
                 elif event.type == pygame.KEYDOWN:
-                    # If the key pressed is 'q', set running to False
                     if event.key == pygame.K_q:
+                        print("Q key pressed in main loop - exiting")
                         running = False
                         break
+            
+            if not running:
+                break
+            
             # Camera detection cycle: motion -> face -> trial
             if not self.SIMULATE:
-                if self.wait_for_motion_and_face():
-                    # Both motion and face detected, run trial
-                    if running and pygame.display.get_surface() is not None:
-                        try:
-                            self.run_trial()
-                        except pygame.error as e:
-                            if "display Surface quit" in str(e):
-                                print("Display closed, ending experiment")
-                                running = False
-                            else:
-                                raise e
-                # If face not detected, loop continues to motion detection
-            else:
-                # Only run trial if still running and display is active
+                result = self.wait_for_motion_and_face()
+                if not result:  # User pressed Q or quit during detection
+                    running = False
+                    break
+                
+                # Both motion and face detected, run trial
                 if running and pygame.display.get_surface() is not None:
                     try:
-                        self.run_trial()
+                        result = self.run_trial()  # Capture return value
+                        if result is False:  # User pressed Q during trial
+                            running = False
+                            break
                     except pygame.error as e:
                         if "display Surface quit" in str(e):
                             print("Display closed, ending experiment")
                             running = False
                         else:
                             raise e
-            
-            clock.tick(60)  # Limit to 60 FPS
+            else:
+                # Simulation mode
+                if running and pygame.display.get_surface() is not None:
+                    try:
+                        result = self.run_trial()
+                        if result is False:
+                            running = False
+                            break
+                    except pygame.error as e:
+                        if "display Surface quit" in str(e):
+                            print("Display closed, ending experiment")
+                            running = False
+                        else:
+                            raise e
         
-        self.clean_up()
+        print("Experiment ended")
+        self.camera_system.cleanup()
+        
         
     def clean_up(self):
         print('Cleaning up ...')
@@ -1508,16 +1542,122 @@ class experiment():
         
         print("Cleanup completed")
         
+        
+        
+    def show_welcome_screen(self):
+        """Display welcome screen with BEGIN and EXIT options"""
+        print(f"show_welcome_screen called. welcome_screen_shown = {self.welcome_screen_shown}")
+        
+        if self.welcome_screen_shown:
+            print("Welcome screen already shown, skipping...")
+            return True
+        
+        print("Displaying welcome screen...")
+        self.welcome_screen_shown = True  # Set flag IMMEDIATELY
+        
+        # Reset button state
+        self.arduino_buttons_button_pressed = None
+        
+        # Define fonts
+        title_font = pygame.font.Font(None, 80)
+        button_font = pygame.font.Font(None, 60)
+        
+        # Define colors
+        WHITE = (255, 255, 255)
+        LIGHT_GRAY = (200, 200, 200)
+        
+        # Button positions
+        button_width = 150
+        button_height = 80
+        left_button_x = self.window_width // 4 - button_width // 2
+        right_button_x = 3 * self.window_width // 4 - button_width // 2
+        button_y = self.window_height - 150
+        
+        begin_button_rect = pygame.Rect(left_button_x, button_y, button_width, button_height)
+        exit_button_rect = pygame.Rect(right_button_x, button_y, button_width, button_height)
+        
+        user_choice = None  # Track the user's choice
+        
+        while user_choice is None:
+            # Clear screen
+            self.screen.fill(self.BLACK)
+            
+            # Draw title
+            title_text = title_font.render("MonkeyBox: Gambling Experiment", True, WHITE)
+            title_rect = title_text.get_rect(center=(self.window_width // 2, 80))
+            self.screen.blit(title_text, title_rect)
+            
+            # Draw BEGIN button
+            pygame.draw.rect(self.screen, (0, 128, 0), begin_button_rect)  # Green
+            pygame.draw.rect(self.screen, WHITE, begin_button_rect, 3)  # White border
+            begin_text = button_font.render("BEGIN", True, WHITE)
+            begin_text_rect = begin_text.get_rect(center=begin_button_rect.center)
+            self.screen.blit(begin_text, begin_text_rect)
+            
+            # Draw EXIT button
+            pygame.draw.rect(self.screen, (128, 0, 0), exit_button_rect)  # Dark Red
+            pygame.draw.rect(self.screen, WHITE, exit_button_rect, 3)  # White border
+            exit_text = button_font.render("EXIT", True, WHITE)
+            exit_text_rect = exit_text.get_rect(center=exit_button_rect.center)
+            self.screen.blit(exit_text, exit_text_rect)
+            
+            # Draw instructions
+            instr_font = pygame.font.Font(None, 36)
+            instr_text = instr_font.render("LEFT arrow/button: BEGIN | RIGHT arrow/button: EXIT", True, LIGHT_GRAY)
+            instr_rect = instr_text.get_rect(center=(self.window_width // 2, self.window_height - 50))
+            self.screen.blit(instr_text, instr_rect)
+            
+            pygame.display.flip()
+            
+            # Handle keyboard input
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    print("User closed window")
+                    return False
+                
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_LEFT:
+                        print("BEGIN selected (left arrow)")
+                        user_choice = True
+                    elif event.key == pygame.K_RIGHT:
+                        print("EXIT selected (right arrow)")
+                        user_choice = False
+                    elif event.key == pygame.K_q:
+                        print("EXIT selected (Q key)")
+                        user_choice = False
+            
+            # Check Arduino button presses
+            if self.arduino_buttons_button_pressed == "left":
+                print("BEGIN selected (left button)")
+                self.arduino_buttons_button_pressed = None
+                user_choice = True
+            elif self.arduino_buttons_button_pressed == "right":
+                print("EXIT selected (right button)")
+                self.arduino_buttons_button_pressed = None
+                user_choice = False
+            
+            self.clock.tick(60)  # 60 FPS
+        
+        print(f"Welcome screen exiting with choice: {user_choice}")
+        return user_choice
+            
+            
             
 # Run the experiment
-if __name__ == "__main__":
+def main():
     try:
         exp = experiment()
+        # Show welcome screen
+        if not exp.show_welcome_screen():
+            print("Exiting...")
+            return
         exp.run() 
-        
     except Exception as e:
         print(f"An error occurred: {e}")
-        # print traceback and line number    
         traceback.print_exc()
     finally:
         pygame.quit()
+
+# Run the experiment
+if __name__ == "__main__":
+    main()
