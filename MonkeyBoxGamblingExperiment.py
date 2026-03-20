@@ -590,6 +590,7 @@ class experiment():
             self.beep_sound500 = pygame.mixer.Sound(sound_path)
             sound_path = os.path.join(script_dir, 'beep1000.wav')
             self.beep_sound1000 = pygame.mixer.Sound(sound_path)
+            print("Sound files beep500.wav and beep1000.wav found. Sound effects will be presented.")
         except:
             print("Warning: beep500.wav or beep1000.wav not found. Sound effects will be skipped.")
             self.beep_sound500 = None
