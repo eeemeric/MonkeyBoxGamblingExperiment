@@ -1,0 +1,21 @@
+{
+  "embedding_model": "deepface",
+  "description_embedding_model": "Options: 'deepface', 'facenet', 'vggface2'",
+  "recognition": {
+    "confidence_threshold": 0.7,
+    "distance_threshold": 0.6,
+    "description": "Face is recognized if distance < distance_threshold"
+  },
+  "unrecognized_clustering": {
+    "enabled": true,
+    "clustering_algorithm": "dbscan",
+    "epsilon": 0.5,
+    "min_samples": 3,
+    "description": "Cluster unrecognized faces into potential new subjects"
+  },
+  "capture": {
+    "capture_rate_fps": 3,
+    "jpeg_quality": 85,
+    "description": "Frame capture settings during trials"
+  }
+}

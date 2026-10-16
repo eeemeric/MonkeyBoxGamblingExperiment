@@ -1,0 +1,30 @@
+{
+  "email": {
+    "enabled": false,
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "sender_email": "YOUR_EMAIL@gmail.com",
+    "sender_password": "YOUR_APP_PASSWORD",
+    "recipient_emails": [
+      "admin@lab.com"
+    ],
+    "description": "Fill in your SMTP credentials or leave disabled"
+  },
+  "sms": {
+    "enabled": false,
+    "provider": "twilio",
+    "twilio_account_sid": "YOUR_ACCOUNT_SID",
+    "twilio_auth_token": "YOUR_AUTH_TOKEN",
+    "twilio_from_number": "+1234567890",
+    "recipient_numbers": [
+      "+1234567890"
+    ],
+    "description": "Fill in Twilio credentials or leave disabled"
+  },
+  "alerts": {
+    "hardware_failure": true,
+    "battery_low": true,
+    "experiment_error": true,
+    "storage_full": true
+  }
+}

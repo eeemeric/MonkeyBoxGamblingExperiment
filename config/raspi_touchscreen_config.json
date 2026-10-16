@@ -1,0 +1,62 @@
+{
+  "enabled": false,
+  "description": "Configuration for Raspberry Pi touchscreen kiosk setup",
+  "display": {
+    "device": "/dev/fb0",
+    "resolution": [
+      1920,
+      1080
+    ],
+    "rotation": 0,
+    "brightness": 100
+  },
+  "touchscreen": {
+    "device": "/dev/input/touchscreen0",
+    "calibration_enabled": false,
+    "calibration_file": "calibration.dat"
+  },
+  "buttons": {
+    "left": {
+      "x_center": 100,
+      "y_center": 850,
+      "width": 200,
+      "height": 200,
+      "color_inactive": [
+        100,
+        100,
+        100
+      ],
+      "color_active": [
+        0,
+        255,
+        0
+      ],
+      "color_pressed": [
+        255,
+        0,
+        0
+      ]
+    },
+    "right": {
+      "x_center": 1820,
+      "y_center": 850,
+      "width": 200,
+      "height": 200,
+      "color_inactive": [
+        100,
+        100,
+        100
+      ],
+      "color_active": [
+        0,
+        255,
+        0
+      ],
+      "color_pressed": [
+        255,
+        0,
+        0
+      ]
+    }
+  }
+}

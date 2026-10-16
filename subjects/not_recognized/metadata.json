@@ -1,0 +1,6 @@
+{
+  "directory_type": "unrecognized_faces",
+  "description": "Faces that were not recognized during trials",
+  "clustering_results": "See clustering_results.json after running face_clustering",
+  "created": "2026-10-16T10:48:47.319707"
+}
