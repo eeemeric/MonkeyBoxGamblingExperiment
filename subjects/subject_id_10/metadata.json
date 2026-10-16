@@ -1,0 +1,14 @@
+{
+  "subject_id": "subject_id_10",
+  "date_enrolled": "2026-10-16T10:48:47.313556",
+  "species": "macaque",
+  "sex": "unknown",
+  "weight_kg": null,
+  "notes": "",
+  "face_recognition": {
+    "num_enrollments": 0,
+    "avg_confidence": null,
+    "last_recognized": null
+  },
+  "experiments": {}
+}

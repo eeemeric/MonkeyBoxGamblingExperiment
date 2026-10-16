@@ -1,0 +1,17 @@
+{
+  "subject_id": "default",
+  "description": "Default parameters for new subjects. Override per subject in subject_params/subject_id_XX.json",
+  "timing": {
+    "ITI_ms": 1000,
+    "max_response_time_ms": 5000,
+    "outcome_display_ms": 500
+  },
+  "trial": {
+    "difficulty": "medium",
+    "trial_order": "random"
+  },
+  "reward": {
+    "magnitude": 5,
+    "probability": 1.0
+  }
+}

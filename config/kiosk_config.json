@@ -1,0 +1,57 @@
+{
+  "kiosk_id": "kiosk_001",
+  "kiosk_type": "traditional_enclosure",
+  "description": "Choose 'traditional_enclosure' (USB Arduino) or 'touchscreen_kiosk' (BLE Feather + Touchscreen)",
+  "hardware": {
+    "hardware_type": "auto",
+    "description_hardware_type": "Options: 'arduino_uno_full', 'feather_reward_only', 'auto'",
+    "arduino_uno": {
+      "port": "COM4",
+      "baudrate": 115200,
+      "motor_max_position": 10.0,
+      "motor_pulse_duration_ms": 500
+    },
+    "adafruit_feather": {
+      "port": "COM3",
+      "baudrate": 115200,
+      "ble_device_name": "mnky_bx_feather_01",
+      "motor_max_position": 10.0,
+      "motor_pulse_duration_ms": 500,
+      "battery_warning_threshold": 20.0
+    }
+  },
+  "touchscreen": {
+    "enabled": false,
+    "description": "Enable if using Feather + Touchscreen kiosk setup",
+    "device": "/dev/input/touchscreen0",
+    "display_width": 1920,
+    "display_height": 1080,
+    "fullscreen": true,
+    "button_size_pixels": 200,
+    "button_y_offset_pixels": 850,
+    "left_button_x": 100,
+    "right_button_x": 1720,
+    "hold_duration_ms": 100
+  },
+  "camera": {
+    "device_id": 0,
+    "width": 640,
+    "height": 480,
+    "fps": 30
+  },
+  "display": {
+    "fullscreen": true,
+    "width": 1920,
+    "height": 1080,
+    "monitor_index": 0
+  },
+  "logging": {
+    "level": "INFO",
+    "log_dir": "logs/"
+  },
+  "notifications": {
+    "enabled": true,
+    "smtp_enabled": true,
+    "sms_enabled": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "experiment_name": "blackjack",
+  "description": "Configuration for blackjack experiment",
+  "timing": {
+    "ITI_ms": 1000,
+    "max_response_time_ms": 5000,
+    "outcome_display_ms": 500
+  },
+  "trial": {
+    "max_trials_per_session": 100,
+    "randomize_trial_order": true
+  },
+  "stimulus": {
+    "circle_radius_pixels": 100,
+    "colors_enabled": true
+  },
+  "reward": {
+    "default_magnitude": 5,
+    "max_magnitude": 10
+  }
+}

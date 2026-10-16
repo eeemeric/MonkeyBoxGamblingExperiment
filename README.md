@@ -1,94 +1,71 @@
-# Monkey Box Gambling Experiment
-A behavioral neuroscience research project designed to study decision-making under uncertainty and gambling behavior in freely moving non-human primates.
+# mnky_bx Kiosk System
 
-## Project Overview
-This is a computerized behavioral experiment that presents gambling choices to subjects, measuring decision-making patterns and risk attitude.
+Modular behavioral neuroscience kiosk system for primate experiments.
 
-### Experimental Design
-#### Trial Types:
-- One Option trials: Single option presentations (probabilistic gamble or guaranteed reward)
-- Choice Sure: Subject chooses between 2 guaranteed rewards of different magnitudes
-- Choice Gamble Sure: Subject chooses between a guaranteed reward and a probabilistic gamble
+## Architecture
 
-#### Key Features:
-- Visual stimuli presented as colored circles on screen. Gamble stimuli are 2 two concentric circles where the color of the larger circle indicates the losing amount magnitude. The color of the smaller circle indicates the winning amount magnitude and the area occupied by the smaller circle indicates the probability of receiving the winning amount.
-- Touch/button press responses for choice selection
-- Probabilistic reward delivery based on predefined conditions
-- Real-time behavioral monitoring with motion and face detection
-- Audio feedback (beeps) corresponding to reward magnitude
+- **Hardware**: Dual configurations (Arduino Uno USB or Adafruit Feather BLE)
+- **Input**: Physical buttons or touchscreen
+- **Face Recognition**: Subject identification via camera
+- **Database**: SQLite with image filesystem storage
+- **Experiments**: Modular experiment framework
 
-#### Technical Implementation
-##### Hardware Integration:
-- Pygame-based visual interface
-- Keyboard or button press (Arduino) input detection
-- Video based motion detection and face detection
-- Audio output for secondary reinforcement
-- Integrated liquid or solid (sugar pellets) reward delivery system 
+## Quick Start
 
-##### Data Collection:
-- SQLite database for trial-by-trial data logging
-- Comprehensive timestamp recording (motion detection, face detection, stimulus onset, response, outcome, reward delivery)
-- Spatial configuration tracking (left/right positioning)
-- Choice accuracy and response time measurements
+1. Edit config/kiosk_config.json for your hardware setup
+2. Run: `python launcher.py`
+3. Select experiment and subject from launcher GUI
 
-##### Paradigm Parameters
-- Multiple reward magnitudes (1-7 pellets/units)
-- Variable probability conditions (0.1, 0.5, 1.0)
-- Configurable win/lose amounts for each option
-- Randomized spatial positioning of choices
-- Inter-trial intervals and timing controls
+## Directory Structure
+```bash
+mnky_bx/
+├── mnky_bx/           # Framework package
+├── config/            # Configuration files
+├── experiments/       # Experiment implementations
+├── subjects/          # Subject data and face encodings
+├── docs/              # Documentation
+└── tests/             # Unit tests
+```
 
-##### Research Applications
-This type of experiment is typically used to study:
-- Risk attitude and decision-making under uncertainty
-- Reward valuation and magnitude sensitivity
-- Comparative cognition across species
+## Configuration
 
-##### Data Output
-The system generates detailed behavioral datasets including:
-- Choice preferences and patterns
-- Reaction times
-- Choice curves
-- Risk attitude measures
-- Session-by-session performance tracking
+- `config/kiosk_config.json` - Main kiosk settings
+- `config/face_recognition_config.json` - Face recognition parameters
+- `config/notification_config_TEMPLATE.json` - Email/SMS alerts (fill in credentials)
+- `experiments/*/config.json` - Experiment-specific settings
 
-##### Data Analysis - Gambling Experiment Database Analyzer
-This is a Python-based analysis system for a Monkey Box Gambling Experiment - a behavioral neuroscience research platform designed to study decision-making, risk assessment, and gambling behavior in laboratory primates. The system imports data from SQLite databases, performs the preliminary statistical analyses, creates visualizations, and identifies unique subjects from captured images.
+## Hardware Configurations
 
-###### Bash
-analyzer = GamblingExperimentAnalyzer()
+### Config 1: Traditional Enclosure (USB)
+- Arduino Uno on COM4 (USB)
+- Button input: Physical left/right buttons
+- LED feedback: Hardware LEDs
+- Reward: Motor control via Arduino
 
-db_path = analyzer.db_path
+### Config 2: Touchscreen Kiosk (BLE)
+- Adafruit Feather on COM3 (BLE wireless)
+- Button input: Touchscreen taps
+- Visual feedback: Rendered on screen
+- Reward: Motor control via Feather
 
-analyzer.close_connection()
+## Face Recognition
 
-## CHANGES
-### 2025/09/29
-- on single option trials, only the corresponding LED is ON. both LEDs are on for all the two option trials
-- created Win_RasPi branch to run on the raspberry pi 
- 
-### 2025/09/28
-- fixed error where the sound files were not found.
-- changed FPS of still pictures from 5 to 3
-- added trial_type 'choice gamble gamble' and the logic for those trials
-- added def analyze_gamble_vs_sure_choices to the analysis
+Subjects are identified via camera:
+- Recognized subjects: `subjects/subject_id_XX/`
+- Unrecognized faces: `subjects/not_recognized/`
 
-### 2025/09/27
-- For a Monkey Box Gambling Experiment, added gamble versus gamble condition. Both options on these trials are gambles of equal expected value (4 units). 
-- Added GamblingExperimentAnalyzer, a Python-based analysis system for the Monkey Box Gambling Experiment - a behavioral neuroscience research platform designed to study decision-making and risk attitude in freely-moving primates. The system imports data from SQLite databases generated by MonkeyBoxGamblingExperiment.py, identifies unique subjects from captured images, and performs statistical analyses separately for each subject.
+## Documentation
 
-### 2025/09/26
-- Added motion detection, face detection, and still photo capture. The system will continuously cycle through motion detection → face detection → trial execution → repeat, capturing pictures during each trial at 5 frames per second. Still photos are saved to the same database as the trial_data in table "trial_pictures".  Trials are only initiated after the installed camera detects motion. 
-- Added GamblingExperimentAnalyzer.py. The program will import and analyze the SQLite database from the gambling experiment. The program automatically opens a file selection dialog when run without arguments. 
+See `docs/` for:
+- ARCHITECTURE.md - System design
+- ORIGINAL_SCRIPT_REFERENCE.md - Original monolithic script info
+- REFACTORING_GUIDE.md - Migration guide
 
-### 2025/09/25
-- Initial upload. fully functional task using keyboard as user input. 
-- Button input (arduino) or keyboard can now be used as user input.
+## Requirements
 
-
-
-## TODO
-- reward system to be assembled and calibrated. 
-- need to include circuit drawings
-- need to include gamble gamble trials
-- add block logic so only gamble choice and gamble gamble trials are presented from the 2nd block
+See requirements.txt or install:
+```bash
+pip install -r requirements.txt
+```
+## Support
+For issues or questions, see docs/ or contact: eee@jhu.edu
