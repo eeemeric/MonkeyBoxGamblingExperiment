@@ -1,4 +1,3 @@
-# mnky_bx/core/condition_manager.py
 """
 Condition Management Module
 
@@ -238,4 +237,148 @@ class ConditionManager:
         # Update block trial counts
         if self.current_block_name not in self.block_trial_count:
             self.block_trial_count[self.current_block_name] = 0
-            self.block_error_count[self
+            self.block_error_count[self.current_block_name] = 0
+        
+        self.block_trial_count[self.current_block_name] += 1
+        
+        if error_code != "correct":
+            self.block_error_count[self.current_block_name] += 1
+        
+        self.logger.debug(
+            f"Trial {trial_record['trial_number']}: "
+            f"{error_code} in block '{self.current_block_name}'"
+        )
+        
+        # Check if block progression rules are met
+        self.check_block_progression()
+    
+    def check_block_progression(self) -> bool:
+        """
+        Evaluate if current block should advance to next.
+        
+        Checks:
+        - Minimum trials completed
+        - Performance threshold met
+        
+        Returns:
+            True if block was advanced
+        """
+        current_block = self.blocks[self.current_block_name]
+        rules = current_block.progression_rules
+        
+        trials_in_block = self.block_trial_count.get(self.current_block_name, 0)
+        min_trials = rules.get("min_trials_per_block", 50)
+        
+        # Check minimum trials
+        if trials_in_block < min_trials:
+            return False
+        
+        # Check performance threshold
+        if "performance_threshold" in rules:
+            threshold = rules["performance_threshold"]
+            errors = self.block_error_count.get(self.current_block_name, 0)
+            correct_trials = trials_in_block - errors
+            performance = correct_trials / trials_in_block if trials_in_block > 0 else 0
+            
+            self.logger.debug(
+                f"Block performance: {performance:.2f} "
+                f"(threshold: {threshold}, trials: {trials_in_block})"
+            )
+            
+            if performance < threshold:
+                return False  # Not ready yet
+        
+        # Advance to next block
+        next_block_name = self.get_next_block_name()
+        if next_block_name:
+            self.logger.info(
+                f"Block progression: "
+                f"'{self.current_block_name}' -> '{next_block_name}' "
+                f"(trials: {trials_in_block})"
+            )
+            
+            # Log transition
+            self.block_transition_log.append({
+                "from_block": self.current_block_name,
+                "to_block": next_block_name,
+                "trial_number": len(self.trial_history),
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            self.current_block_name = next_block_name
+            self.block_trial_count[self.current_block_name] = 0
+            self.block_error_count[self.current_block_name] = 0
+            return True
+        
+        return False
+    
+    def should_continue_session(self) -> bool:
+        """Check if there are more blocks to run"""
+        return self.current_block_name is not None
+    
+    def get_current_block(self) -> Block:
+        """Get current block object"""
+        return self.blocks[self.current_block_name]
+    
+    def get_first_block_name(self) -> str:
+        """Get name of first block"""
+        return next(iter(self.blocks.keys())) if self.blocks else None
+    
+    def get_next_block_name(self) -> Optional[str]:
+        """Get name of next block in sequence"""
+        block_names = list(self.blocks.keys())
+        if self.current_block_name not in block_names:
+            return None
+        
+        current_index = block_names.index(self.current_block_name)
+        
+        if current_index + 1 < len(block_names):
+            return block_names[current_index + 1]
+        
+        return None  # No more blocks
+    
+    def get_session_summary(self) -> Dict:
+        """Get summary statistics for session"""
+        total_trials = len(self.trial_history)
+        correct_trials = sum(1 for t in self.trial_history if t["error_code"] == "correct")
+        
+        # Block statistics
+        block_stats = {}
+        for block_name in self.blocks.keys():
+            trials_in_block = sum(
+                1 for t in self.trial_history if t["block"] == block_name
+            )
+            if trials_in_block > 0:
+                correct_in_block = sum(
+                    1 for t in self.trial_history 
+                    if t["block"] == block_name and t["error_code"] == "correct"
+                )
+                block_stats[block_name] = {
+                    "total_trials": trials_in_block,
+                    "correct": correct_in_block,
+                    "accuracy": correct_in_block / trials_in_block
+                }
+        
+        return {
+            "total_trials": total_trials,
+            "correct_trials": correct_trials,
+            "accuracy": correct_trials / total_trials if total_trials > 0 else 0,
+            "blocks_completed": len(set(t["block"] for t in self.trial_history)),
+            "current_block": self.current_block_name,
+            "block_statistics": block_stats,
+            "block_transitions": self.block_transition_log,
+            "trial_history": self.trial_history
+        }
+    
+    def get_trial_history_by_block(self, block_name: str) -> List[Dict]:
+        """Get all trials from specific block"""
+        return [t for t in self.trial_history if t["block"] == block_name]
+    
+    def export_trial_history_json(self, output_path: Path):
+        """Export trial history to JSON file"""
+        summary = self.get_session_summary()
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2)
+        
+        self.logger.info(f"Trial history exported to {output_path}")

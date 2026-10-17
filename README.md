@@ -111,7 +111,7 @@ mnky_bx/core/
 ### Benefits of This Architecture
 ---
 | Aspect	| Benefit |
-|---|---|
+|:---|:---|
 | **Separation of Concerns**	| Conditions, scenes, and stimulus rendering are completely decoupled
 | **Reusability**	| Scenes can be shared across experiments
 | **Testability**	| Each module can be tested independently
@@ -123,7 +123,7 @@ mnky_bx/core/
 ## Summary Table
 
 | File	| Purpose	| Type
-| --- | --- | --- |
+| :--- | :--- | :--- |
 | mnky_bx/core/condition_manager.py	| Condition selection & block progression	| Core Module
 | mnky_bx/core/experiment_base.py | 	Trial orchestration framework	| Core Module
 | experiments/gambling_experiment/scenes.py	| Scene-based trial phases	| Experiment
@@ -160,3 +160,49 @@ Separation of Concerns
 - Each module can be tested independently
 - Mock hardware/database for testing
 - Scene logic independent of hardware
+
+- # Update 2026-10-17b
+##  Created comprehensive launcher GUI stubs. Includes:
+
+1. **KioskManager** - Session and subject management
+2. **LauncherUI** - Main GUI for experiment/subject selection
+3. **SubjectEnrollmentUI** - Add new subjects
+4. **launcher.py** - Main entry point
+
+## Summary Table
+| File	| Purpose | 	Type |
+| :--- | :--- | :--- |
+mnky_bx/core/kiosk_manager.py | 	Session & subject management	| Core Module
+mnky_bx/ui/launcher_ui.py	| Main launcher GUI	| UI Module
+launcher.py	| Entry point & initialization	| Main Script
+mnky_bx/logging/experiment_logger.py	| Trial & event logging	| Logging Module
+mnky_bx/ui/__init__.py| 	UI package exports	| Package
+mnky_bx/logging/__init__.py | 	Logging package exports | 	Package
+
+
+## Workflow
+1. #### User runs launcher.py
+
+    - Finds/creates kiosk_config.json
+    - Initializes KioskManager
+    - Discovers experiments and subjects
+
+2. #### LauncherUI displays
+    - Main menu → Select Experiment → Select Subject → Start
+3. Session is initialized
+    - KioskManager.initialize_session() creates session directory
+    - Auto-increments session numbers (session_001, session_002, etc.)
+4. Experiment loads (TODO: implement run_experiment)
+- Load experiment module dynamically
+- Load condition definitions (conditions.json)
+- Load subject adaptive parameters
+- Create experiment instance
+- Run experiment.run_session()
+
+## Key Features
+- ✅ Discover experiments and subjects dynamically
+- ✅ Auto-increment session numbers per subject-experiment
+- ✅ Create new subjects with metadata
+- ✅ Simple click-based GUI with hover feedback
+- ✅ Logging to file and JSON
+- ✅ Configuration-driven setup

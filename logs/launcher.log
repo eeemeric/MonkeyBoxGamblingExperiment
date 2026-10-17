@@ -1,0 +1,146 @@
+2026-10-17 14:47:55,620 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:47:55,621 - mnky_bx - INFO - mnky_bx Kiosk Launcher Starting
+2026-10-17 14:47:55,621 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:47:55,621 - mnky_bx - INFO - Using config: C:\Users\eemeric2\OneDrive - Johns Hopkins\Documents\GitHub\MonkeyBoxGamblingExperiment\config\kiosk_config.json
+2026-10-17 14:47:55,638 - mnky_bx - INFO - Kiosk ID: kiosk_001
+2026-10-17 14:47:55,638 - mnky_bx.core.kiosk_manager - INFO - KioskManager initialized: kiosk_001, root=C:\Users\eemeric2\OneDrive - Johns Hopkins\Documents\GitHub\MonkeyBoxGamblingExperiment
+2026-10-17 14:47:55,657 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: blackjack
+2026-10-17 14:47:55,676 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: gambling_experiment
+2026-10-17 14:47:55,690 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_01
+2026-10-17 14:47:55,704 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_02
+2026-10-17 14:47:55,716 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_03
+2026-10-17 14:47:55,726 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_04
+2026-10-17 14:47:55,737 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_05
+2026-10-17 14:47:55,747 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_06
+2026-10-17 14:47:55,757 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_07
+2026-10-17 14:47:55,776 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_08
+2026-10-17 14:47:55,788 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_09
+2026-10-17 14:47:55,802 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_10
+2026-10-17 14:47:55,814 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_11
+2026-10-17 14:47:55,824 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_12
+2026-10-17 14:47:55,824 - mnky_bx - INFO - KioskManager: KioskManager(kiosk_001, experiments=2, subjects=12)
+2026-10-17 14:47:55,826 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: blackjack
+2026-10-17 14:47:55,827 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: gambling_experiment
+2026-10-17 14:47:55,828 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_01
+2026-10-17 14:47:55,828 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_02
+2026-10-17 14:47:55,829 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_03
+2026-10-17 14:47:55,829 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_04
+2026-10-17 14:47:55,830 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_05
+2026-10-17 14:47:55,831 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_06
+2026-10-17 14:47:55,831 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_07
+2026-10-17 14:47:55,832 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_08
+2026-10-17 14:47:55,832 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_09
+2026-10-17 14:47:55,833 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_10
+2026-10-17 14:47:55,834 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_11
+2026-10-17 14:47:55,834 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_12
+2026-10-17 14:47:55,834 - mnky_bx - INFO - Experiments available: 2
+2026-10-17 14:47:55,834 - mnky_bx - INFO -   - blackjack: Configuration for blackjack experiment
+2026-10-17 14:47:55,835 - mnky_bx - INFO -   - gambling_experiment: Probabilistic decision-making task
+2026-10-17 14:47:55,835 - mnky_bx - INFO - Subjects available: 12
+2026-10-17 14:47:55,835 - mnky_bx - INFO -   - subject_id_01
+2026-10-17 14:47:55,835 - mnky_bx - INFO -   - subject_id_02
+2026-10-17 14:47:55,835 - mnky_bx - INFO -   - subject_id_03
+2026-10-17 14:47:55,836 - mnky_bx - INFO -   - subject_id_04
+2026-10-17 14:47:55,836 - mnky_bx - INFO -   - subject_id_05
+2026-10-17 14:47:55,836 - mnky_bx - INFO -   - subject_id_06
+2026-10-17 14:47:55,836 - mnky_bx - INFO -   - subject_id_07
+2026-10-17 14:47:55,836 - mnky_bx - INFO -   - subject_id_08
+2026-10-17 14:47:55,837 - mnky_bx - INFO -   - subject_id_09
+2026-10-17 14:47:55,837 - mnky_bx - INFO -   - subject_id_10
+2026-10-17 14:47:55,837 - mnky_bx - INFO -   - subject_id_11
+2026-10-17 14:47:55,837 - mnky_bx - INFO -   - subject_id_12
+2026-10-17 14:47:55,837 - mnky_bx - INFO - Launching GUI...
+2026-10-17 14:47:56,104 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: blackjack
+2026-10-17 14:47:56,104 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: gambling_experiment
+2026-10-17 14:47:56,105 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_01
+2026-10-17 14:47:56,106 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_02
+2026-10-17 14:47:56,106 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_03
+2026-10-17 14:47:56,107 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_04
+2026-10-17 14:47:56,107 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_05
+2026-10-17 14:47:56,108 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_06
+2026-10-17 14:47:56,109 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_07
+2026-10-17 14:47:56,109 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_08
+2026-10-17 14:47:56,110 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_09
+2026-10-17 14:47:56,111 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_10
+2026-10-17 14:47:56,112 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_11
+2026-10-17 14:47:56,112 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_12
+2026-10-17 14:47:56,112 - mnky_bx.ui.launcher_ui - INFO - LauncherUI initialized: 2 experiments, 12 subjects
+2026-10-17 14:48:02,929 - mnky_bx - INFO - Launcher closed without selection
+2026-10-17 14:48:02,930 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:48:02,931 - mnky_bx - INFO - mnky_bx Kiosk Launcher Closed
+2026-10-17 14:48:02,931 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:48:09,735 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:48:09,736 - mnky_bx - INFO - mnky_bx Kiosk Launcher Starting
+2026-10-17 14:48:09,736 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:48:09,736 - mnky_bx - INFO - Using config: C:\Users\eemeric2\OneDrive - Johns Hopkins\Documents\GitHub\MonkeyBoxGamblingExperiment\config\kiosk_config.json
+2026-10-17 14:48:09,737 - mnky_bx - INFO - Kiosk ID: kiosk_001
+2026-10-17 14:48:09,738 - mnky_bx.core.kiosk_manager - INFO - KioskManager initialized: kiosk_001, root=C:\Users\eemeric2\OneDrive - Johns Hopkins\Documents\GitHub\MonkeyBoxGamblingExperiment
+2026-10-17 14:48:09,739 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: blackjack
+2026-10-17 14:48:09,740 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: gambling_experiment
+2026-10-17 14:48:09,742 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_01
+2026-10-17 14:48:09,746 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_02
+2026-10-17 14:48:09,747 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_03
+2026-10-17 14:48:09,748 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_04
+2026-10-17 14:48:09,749 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_05
+2026-10-17 14:48:09,749 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_06
+2026-10-17 14:48:09,750 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_07
+2026-10-17 14:48:09,751 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_08
+2026-10-17 14:48:09,752 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_09
+2026-10-17 14:48:09,752 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_10
+2026-10-17 14:48:09,753 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_11
+2026-10-17 14:48:09,754 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_12
+2026-10-17 14:48:09,754 - mnky_bx - INFO - KioskManager: KioskManager(kiosk_001, experiments=2, subjects=12)
+2026-10-17 14:48:09,755 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: blackjack
+2026-10-17 14:48:09,756 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: gambling_experiment
+2026-10-17 14:48:09,757 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_01
+2026-10-17 14:48:09,758 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_02
+2026-10-17 14:48:09,760 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_03
+2026-10-17 14:48:09,764 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_04
+2026-10-17 14:48:09,766 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_05
+2026-10-17 14:48:09,767 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_06
+2026-10-17 14:48:09,767 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_07
+2026-10-17 14:48:09,768 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_08
+2026-10-17 14:48:09,769 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_09
+2026-10-17 14:48:09,770 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_10
+2026-10-17 14:48:09,771 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_11
+2026-10-17 14:48:09,771 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_12
+2026-10-17 14:48:09,771 - mnky_bx - INFO - Experiments available: 2
+2026-10-17 14:48:09,771 - mnky_bx - INFO -   - blackjack: Configuration for blackjack experiment
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - gambling_experiment: Probabilistic decision-making task
+2026-10-17 14:48:09,772 - mnky_bx - INFO - Subjects available: 12
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_01
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_02
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_03
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_04
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_05
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_06
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_07
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_08
+2026-10-17 14:48:09,772 - mnky_bx - INFO -   - subject_id_09
+2026-10-17 14:48:09,773 - mnky_bx - INFO -   - subject_id_10
+2026-10-17 14:48:09,773 - mnky_bx - INFO -   - subject_id_11
+2026-10-17 14:48:09,773 - mnky_bx - INFO -   - subject_id_12
+2026-10-17 14:48:09,773 - mnky_bx - INFO - Launching GUI...
+2026-10-17 14:48:09,980 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: blackjack
+2026-10-17 14:48:09,981 - mnky_bx.core.kiosk_manager - DEBUG - Discovered experiment: gambling_experiment
+2026-10-17 14:48:09,983 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_01
+2026-10-17 14:48:09,983 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_02
+2026-10-17 14:48:09,984 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_03
+2026-10-17 14:48:09,985 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_04
+2026-10-17 14:48:09,985 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_05
+2026-10-17 14:48:09,986 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_06
+2026-10-17 14:48:09,987 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_07
+2026-10-17 14:48:09,988 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_08
+2026-10-17 14:48:09,988 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_09
+2026-10-17 14:48:09,989 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_10
+2026-10-17 14:48:09,990 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_11
+2026-10-17 14:48:09,990 - mnky_bx.core.kiosk_manager - DEBUG - Discovered subject: subject_id_12
+2026-10-17 14:48:09,990 - mnky_bx.ui.launcher_ui - INFO - LauncherUI initialized: 2 experiments, 12 subjects
+2026-10-17 14:48:25,973 - mnky_bx.core.kiosk_manager - INFO - Session initialized: subject_id_11/gambling_experiment/session_001
+2026-10-17 14:48:26,040 - mnky_bx - INFO - Selected: gambling_experiment / subject_id_11
+2026-10-17 14:48:26,041 - mnky_bx - INFO - Session path: C:\Users\eemeric2\OneDrive - Johns Hopkins\Documents\GitHub\MonkeyBoxGamblingExperiment\subjects\subject_id_11\gambling_experiment\session_001
+2026-10-17 14:48:26,041 - mnky_bx - INFO - Starting experiment: gambling_experiment for subject_id_11 in C:\Users\eemeric2\OneDrive - Johns Hopkins\Documents\GitHub\MonkeyBoxGamblingExperiment\subjects\subject_id_11\gambling_experiment\session_001
+2026-10-17 14:48:26,042 - mnky_bx - INFO - Experiment completed
+2026-10-17 14:48:26,042 - mnky_bx - INFO - ======================================================================
+2026-10-17 14:48:26,042 - mnky_bx - INFO - mnky_bx Kiosk Launcher Closed
+2026-10-17 14:48:26,042 - mnky_bx - INFO - ======================================================================
