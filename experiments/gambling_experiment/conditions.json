@@ -1,0 +1,157 @@
+{
+  "experiment_name": "gambling_experiment",
+  "description": "Decision-making under risk with probabilistic outcomes",
+  
+  "blocks": {
+    "learning": {
+      "description": "Learning phase - simple trials with clear outcomes",
+      "conditions": [
+        {
+          "condition_id": 1,
+          "frequency": 0.25,
+          "trial_type": "no_choice_sure",
+          "parameters": {
+            "left_option": {
+              "win": 5,
+              "loss": 0,
+              "prob_win": 1.0,
+              "reward_magnitude": 5
+            },
+            "right_option": {
+              "win": 0,
+              "loss": 0,
+              "prob_win": 0.0,
+              "reward_magnitude": 0
+            }
+          },
+          "metadata": {
+            "description": "No choice, sure reward"
+          }
+        },
+        {
+          "condition_id": 2,
+          "frequency": 0.25,
+          "trial_type": "no_choice_gamble",
+          "parameters": {
+            "left_option": {
+              "win": 7,
+              "loss": 1,
+              "prob_win": 0.5,
+              "reward_magnitude": 7
+            },
+            "right_option": {
+              "win": 0,
+              "loss": 0,
+              "prob_win": 0.0,
+              "reward_magnitude": 0
+            }
+          },
+          "metadata": {
+            "description": "No choice, 50/50 gamble"
+          }
+        },
+        {
+          "condition_id": 3,
+          "frequency": 0.25,
+          "trial_type": "choice_sure_vs_sure",
+          "parameters": {
+            "left_option": {
+              "win": 5,
+              "loss": 0,
+              "prob_win": 1.0,
+              "reward_magnitude": 5
+            },
+            "right_option": {
+              "win": 3,
+              "loss": 0,
+              "prob_win": 1.0,
+              "reward_magnitude": 3
+            }
+          },
+          "metadata": {
+            "description": "Choose: 5 vs 3 (both sure)"
+          }
+        },
+        {
+          "condition_id": 4,
+          "frequency": 0.25,
+          "trial_type": "choice_gamble_vs_sure",
+          "parameters": {
+            "left_option": {
+              "win": 7,
+              "loss": 1,
+              "prob_win": 0.5,
+              "reward_magnitude": 7
+            },
+            "right_option": {
+              "win": 5,
+              "loss": 0,
+              "prob_win": 1.0,
+              "reward_magnitude": 5
+            }
+          },
+          "metadata": {
+            "description": "Choose: gamble vs sure"
+          }
+        }
+      ]
+    },
+    
+    "test": {
+      "description": "Test phase - complex probabilistic choices",
+      "conditions": [
+        {
+          "condition_id": 5,
+          "frequency": 0.5,
+          "trial_type": "choice_gamble_vs_gamble_easy",
+          "parameters": {
+            "left_option": {
+              "win": 7,
+              "loss": 1,
+              "prob_win": 0.7,
+              "reward_magnitude": 7
+            },
+            "right_option": {
+              "win": 6,
+              "loss": 2,
+              "prob_win": 0.4,
+              "reward_magnitude": 6
+            }
+          },
+          "metadata": {
+            "description": "Gamble vs gamble: 70% vs 40%"
+          }
+        },
+        {
+          "condition_id": 6,
+          "frequency": 0.5,
+          "trial_type": "choice_gamble_vs_gamble_hard",
+          "parameters": {
+            "left_option": {
+              "win": 7,
+              "loss": 1,
+              "prob_win": 0.5,
+              "reward_magnitude": 7
+            },
+            "right_option": {
+              "win": 6,
+              "loss": 2,
+              "prob_win": 0.5,
+              "reward_magnitude": 6
+            }
+          },
+          "metadata": {
+            "description": "Gamble vs gamble: 50% vs 50%"
+          }
+        }
+      ]
+    }
+  },
+  
+  "progression_rules": {
+    "block_transition": "automatic_performance_based",
+    "min_trials_per_block": 50,
+    "performance_threshold": 0.70,
+    "description": "Advance to next block after 50 trials with >= 70% accuracy (task performance)"
+  }
+}

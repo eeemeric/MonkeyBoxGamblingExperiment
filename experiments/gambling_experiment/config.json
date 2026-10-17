@@ -1,21 +1,45 @@
 {
   "experiment_name": "gambling_experiment",
-  "description": "Configuration for gambling_experiment experiment",
+  "experiment_version": "2.0",
+  "description": "Probabilistic decision-making task",
+  
+  "conditions_file": "experiments/gambling_experiment/conditions.json",
+  
   "timing": {
-    "ITI_ms": 1000,
+    "iti_ms": 1000,
+    "fixation_hold_ms": 500,
+    "stimulus_display_ms": 1000,
     "max_response_time_ms": 5000,
-    "outcome_display_ms": 500
+    "outcome_display_ms": 500,
+    "reward_delivery_ms": 500
   },
-  "trial": {
-    "max_trials_per_session": 100,
-    "randomize_trial_order": true
-  },
+  
   "stimulus": {
     "circle_radius_pixels": 100,
-    "colors_enabled": true
+    "left_color_rgb": [0, 128, 0],
+    "right_color_rgb": [0, 0, 131],
+    "fixation_color_rgb": [255, 255, 255],
+    "reward_color_rgb": [255, 215, 0],
+    "error_color_rgb": [255, 0, 0]
   },
+  
+  "display": {
+    "fullscreen": true,
+    "width": 1920,
+    "height": 1080,
+    "refresh_rate": 60
+  },
+  
   "reward": {
-    "default_magnitude": 5,
-    "max_magnitude": 10
+    "motor_max_position_mm": 10,
+    "pulse_duration_ms": 500,
+    "magnitude_scale": 1.0
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "log_dir": "logs/",
+    "save_trial_images": true,
+    "save_trial_video": false
   }
 }

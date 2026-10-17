@@ -1,17 +1,31 @@
 {
   "subject_id": "default",
-  "description": "Default parameters for new subjects. Override per subject in subject_params/subject_id_XX.json",
-  "timing": {
-    "ITI_ms": 1000,
-    "max_response_time_ms": 5000,
-    "outcome_display_ms": 500
+  "created": "2024-01-01T00:00:00Z",
+  "description": "Default adaptive parameters for new subjects",
+  
+  "learning": {
+    "learning_rate": 0.1,
+    "reward_sensitivity": 1.0,
+    "risk_aversion": 0.5
   },
-  "trial": {
-    "difficulty": "medium",
-    "trial_order": "random"
+  
+  "task_parameters": {
+    "fixation_hold_required_ms": 500,
+    "stimulus_display_duration_ms": 1000,
+    "max_response_time_ms": 5000
   },
-  "reward": {
-    "magnitude": 5,
-    "probability": 1.0
+  
+  "difficulty_adaptation": {
+    "enabled": true,
+    "min_accuracy_threshold": 0.60,
+    "max_accuracy_threshold": 0.90,
+    "adjust_frequency": "per_block"
+  },
+  
+  "subject_metadata": {
+    "species": "unknown",
+    "sex": "unknown",
+    "weight_kg": 0.0,
+    "enrollment_date": "unknown"
   }
 }

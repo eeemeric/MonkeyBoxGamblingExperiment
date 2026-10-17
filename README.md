@@ -69,3 +69,94 @@ pip install -r requirements.txt
 ```
 ## Support
 For issues or questions, see docs/ or contact: eee@jhu.edu
+
+- # Update 2026-10-17
+## Hybrid Approach: MonkeyLogic Concepts + mnky_bx Implementation
+
+### Current Architecture (Tightly Coupled)
+```python
+class GamblingExperiment(ExperimentBase):
+    def run_trial(self):
+        # Selection logic mixed with trial logic
+        condition = self.select_condition()  # EMBEDDED
+        self.execute_trial(condition)
+```
+
+**Integration of [MonkeyLogic](<https://monkeylogic.nimh.nih.gov/>) concepts into our existing framework:**
+
+### Proposed Architecture (Modular)
+
+1. Conditions File → conditions.json (or conditions.py) - Instead of a MATLAB text file, use a structured JSON config:
+2. scenes.py (NEW - Experiment-specific)
+3. experiment_base.py (UPDATED)
+4. experiment.py (UPDATED - Gambling Experiment)
+5. conditions.json (Experiment-specific)
+
+```graphql
+experiments/gambling_experiment/
+├── experiment.py           # Stimulus rendering + outcome eval
+├── scenes.py               # Scene definitions (NEW)
+├── conditions.json         # Condition definitions (NEW)
+├── config.json             # Experiment timing/display config
+└── subject_params/
+    ├── default.json
+    └── subject_id_01.json
+
+mnky_bx/core/
+├── experiment_base.py      # Trial orchestration (UPDATED)
+├── condition_manager.py    # Condition selection (NEW)
+└── trial_manager.py
+```
+
+### Benefits of This Architecture
+---
+| Aspect	| Benefit |
+|---|---|
+| **Separation of Concerns**	| Conditions, scenes, and stimulus rendering are completely decoupled
+| **Reusability**	| Scenes can be shared across experiments
+| **Testability**	| Each module can be tested independently
+| **Maintainability**	| Changes to conditions don't affect code; changes to scenes don't affect conditions
+| **MonkeyLogic-like**	| Conditions file + timing script structure, but in Python 
+| **Flexibility**	| Easy to add new block progression rules, scene types, etc.|
+---
+
+## Summary Table
+
+| File	| Purpose	| Type
+| --- | --- | --- |
+| mnky_bx/core/condition_manager.py	| Condition selection & block progression	| Core Module
+| mnky_bx/core/experiment_base.py | 	Trial orchestration framework	| Core Module
+| experiments/gambling_experiment/scenes.py	| Scene-based trial phases	| Experiment
+| experiments/gambling_experiment/experiment.py	| Gambling task implementation	| Experiment
+| experiments/gambling_experiment/conditions.json	| Trial condition definitions	| Config
+| experiments/gambling_experiment/config.json	| Experiment parameters	| Config
+| experiments/gambling_experiment/subject_params/default.json	| Default adaptive params	| Config
+| mnky_bx/core/__init__.py	| Package exports	| Package
+experiments/__init__.py	| Experiments package	| Package
+| experiments/gambling_experiment/__init__.py	| Module exports	| Package
+---
+
+
+## Key Design Principles
+Separation of Concerns
+
+### 1. ConditionManager handles all condition logic
+- ExperimentBase handles trial orchestration
+- Scenes handle stimulus rendering & timing
+- Experiment subclass implements only outcome evaluation
+### 2. JSON Configuration
+
+- All timing, stimulus, and reward params in config.json
+- All trial conditions in conditions.json
+- All adaptive params in subject_params/ JSON files
+
+### 3. Reusability
+
+- Scenes can be shared across experiments
+- ConditionManager is experiment-agnostic
+- ExperimentBase provides consistent interface
+### 4. Testability
+
+- Each module can be tested independently
+- Mock hardware/database for testing
+- Scene logic independent of hardware
